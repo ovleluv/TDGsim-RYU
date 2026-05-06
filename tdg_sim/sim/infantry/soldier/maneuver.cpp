@@ -23,9 +23,13 @@ Maneuver::Maneuver(Engine* engine, Entity* info)
 
 }
 
-float Maneuver::mnvEquation(float speed) {\
-    if(speed){
-        return config::inf.walking_speed_spc;
+float Maneuver::mnvEquation(float speed, Point destination) const {
+    if(speed > 0.0f){
+        float terrainMultiplier = 1.0f;
+        if (EnvReady() && env->InBounds(destination)) {
+            terrainMultiplier = env->GetMoveTimeMultiplierAt(destination);
+        }
+        return config::inf.walking_speed_spc * terrainMultiplier;
     }else{
         return config::inf.looking_speed_spc;
     }
@@ -55,7 +59,7 @@ bool Maneuver::ExtTransFn(const std::string& inPort, const std::any& anyMessage)
             // LogSimulation(this->engine->GetCurrentTime(),this->GetName(),"RECEIVE_ORDER","task=","HOLD");
         }
 
-        this->t_mnv = mnvEquation(this->curSpeed);
+        this->t_mnv = mnvEquation(this->curSpeed, this->nextPos);
         if(GetCurState()=="MOVE") this->t_mnv = std::max(0.f, t_mnv - executedTime);
         this->SetCurState("MOVE");
     }else if(inPort == "FireIn"){  // TODO: DamageEvaluation::AM 으로 추후 분리
@@ -70,14 +74,22 @@ bool Maneuver::ExtTransFn(const std::string& inPort, const std::any& anyMessage)
         if(message.senderType == ForceType::RIFLE && message.targetId == this->info->id){
             ensureRng();
             std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-            isDead = dist(rng) < this->curPkill;
+            float pkill = this->curPkill;
+            if (EnvReady() && env->InBounds(this->info->position)) {
+                pkill *= env->GetRiflePkillMultiplierAt(this->info->position);
+            }
+            isDead = dist(rng) < std::clamp(pkill, 0.0f, 1.0f);
         }else if(message.senderType == ForceType::ARTILLERY){
             const Point& curPos = this->info->position;
             bool designated = std::find(message.targetPoint.begin(), message.targetPoint.end(), curPos) != message.targetPoint.end();
             if (designated) {
                 ensureRng();
                 std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-                isDead = dist(rng) < config::inf.pkill_covered_art;
+                float pkill = config::inf.pkill_covered_art;
+                if (EnvReady() && env->InBounds(curPos)) {
+                    pkill *= env->GetArtilleryPkillMultiplierAt(curPos);
+                }
+                isDead = dist(rng) < std::clamp(pkill, 0.0f, 1.0f);
             }
         }
         if(isDead){

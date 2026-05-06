@@ -11,8 +11,7 @@ namespace {
     };
 
     inline bool TerrainPassable(Environment& environment, Point p) {
-        return environment.InBounds(p) &&
-               environment.GetTerrainAt(p) != TerrainType::RIVER;
+        return environment.IsTerrainPassable(p);
     }
 
     Point ClampIntoBounds(const Environment& environment, Point p) {

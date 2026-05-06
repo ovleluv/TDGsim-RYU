@@ -1,5 +1,23 @@
 #include "detection.hpp"
 
+namespace {
+bool HasLineOfSight(Point from, Point to) {
+    if (!EnvReady()) return true;
+    if (!env->InBounds(from) || !env->InBounds(to)) return false;
+
+    Rect clip{0, 0, env->GetWidth() - 1, env->GetHeight() - 1};
+    Line line{from, to};
+    std::vector<Point> cells = line.CellsOn(clip);
+    for (const Point& cell : cells) {
+        if (cell == from || cell == to) continue;
+        if (env->TerrainBlocksLineOfSight(cell)) {
+            return false;
+        }
+    }
+    return true;
+}
+}
+
 Detection::Detection(Engine* engine, Entity* info)
     : AtomicModel(engine)
 {
@@ -33,12 +51,18 @@ void Detection::RebuildEnemyPosList() {
     const int vx = curPos.x;
     const int vy = curPos.y;
 
-    const int y0 = std::max(0,     vy - config::inf.vision);
-    const int y1 = std::min(H - 1, vy + config::inf.vision);
-    const int x0 = std::max(0,     vx - config::inf.vision);
-    const int x1 = std::min(W - 1, vx + config::inf.vision);
+    int effectiveVision = config::inf.vision;
+    effectiveVision = static_cast<int>(
+        std::round(static_cast<float>(effectiveVision) * env->GetVisionMultiplierAt(curPos))
+    );
+    effectiveVision = std::max(0, effectiveVision);
 
-    const int r2 = config::inf.vision * config::inf.vision;
+    const int y0 = std::max(0,     vy - effectiveVision);
+    const int y1 = std::min(H - 1, vy + effectiveVision);
+    const int x0 = std::max(0,     vx - effectiveVision);
+    const int x1 = std::min(W - 1, vx + effectiveVision);
+
+    const int r2 = effectiveVision * effectiveVision;
 
     std::unordered_set<int> seen;
 
@@ -58,6 +82,7 @@ void Detection::RebuildEnemyPosList() {
                 const Entity* e = env->QueryEntityById(id);
                 if (!e) continue;
                 if (e->side == this->info->side) continue;
+                if (!HasLineOfSight(curPos, Point{x, y})) continue;
 
                 if (seen.insert(id).second) {
                     enemyIds.push_back(id);

@@ -10,6 +10,9 @@ std::string ToLower(std::string s){
 TerrainType ParseTerrainType(const std::string& s){
     std::string k = ToLower(s);
     if (k == "river" || k== "water") return TerrainType::RIVER;
+    if (k == "bridge") return TerrainType::BRIDGE;
+    if (k == "hill" || k == "hills") return TerrainType::HILL;
+    if (k == "mountain" || k == "mountains") return TerrainType::MOUNTAIN;
     return TerrainType::PLAIN;
 }
 SideType ParseSide(const std::string& s){

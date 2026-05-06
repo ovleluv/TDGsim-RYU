@@ -46,7 +46,32 @@ namespace config {
     inline Artillery art;
 }
 // ============================ Types ============================
-enum class TerrainType { PLAIN, RIVER }; // terrain def
+enum class TerrainType { PLAIN, RIVER, BRIDGE, HILL, MOUNTAIN }; // terrain def
+
+struct TerrainEffect {
+    bool passable = true;
+    float moveTimeMultiplier = 1.0f;
+    float visionMultiplier = 1.0f;
+    float riflePkillMultiplier = 1.0f;
+    float artilleryPkillMultiplier = 1.0f;
+    bool blocksLineOfSight = false;
+};
+
+inline TerrainEffect GetTerrainEffect(TerrainType terrain) noexcept {
+    switch (terrain) {
+    case TerrainType::RIVER:
+        return {false, 1.0f, 1.0f, 1.0f, 1.0f, false};
+    case TerrainType::BRIDGE:
+        return {true, 1.0f, 1.0f, 1.0f, 1.0f, false};
+    case TerrainType::HILL:
+        return {true, 1.5f, 1.25f, 0.85f, 0.9f, false};
+    case TerrainType::MOUNTAIN:
+        return {true, 2.5f, 1.5f, 0.65f, 0.75f, true};
+    case TerrainType::PLAIN:
+    default:
+        return {};
+    }
+}
 enum class SideType { BLUE, RED }; 
 enum class ForceType { RIFLE, ARTILLERY, TANK, DEFAULT };
 enum class TaskType { MOVE, BOMBARD, HOLD };

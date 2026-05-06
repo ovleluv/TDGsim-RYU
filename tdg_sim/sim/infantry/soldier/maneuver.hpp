@@ -16,7 +16,7 @@ private:
 
     // DEVS
     float t_mnv = -1.0f;
-    float mnvEquation(float speed);
+    float mnvEquation(float speed, Point destination) const;
 
     // RNG
     std::mt19937 rng;

@@ -14,7 +14,7 @@ Controls:
       * Drag empty space: create terrain rectangle
       * Drag existing terrain: move rectangle
       * Right click: delete terrain
-      * 1-6: set terrain kind (plain/water/bridge/forest/urban/rough)
+      * 1-8: set terrain kind (plain/water/bridge/forest/urban/rough/hill/mountain)
   - Goal mode:
       * Drag empty space: create goal rectangle
       * Drag existing goal: move rectangle
@@ -43,6 +43,8 @@ COLORS = {
     "forest": (161, 217, 155),
     "urban": (189, 189, 189),
     "rough": (231, 186, 82),
+    "hill": (189, 183, 107),
+    "mountain": (128, 128, 128),
     "plain": (220, 220, 220),
     "target_area": (180, 180, 180),
     "blue": (49, 130, 189),
@@ -54,7 +56,7 @@ COLORS = {
     "selected": (255, 215, 0),
 }
 
-TERRAIN_KINDS = ["plain", "water", "bridge", "forest", "urban", "rough"]
+TERRAIN_KINDS = ["plain", "water", "bridge", "forest", "urban", "rough", "hill", "mountain"]
 
 
 def map_patch_colour(kind: str) -> Tuple[int, int, int]:
@@ -375,8 +377,11 @@ def main() -> None:
                         rebuild_entity(ent)
                         dirty = True
                 elif mode == "terrain":
-                    if pygame.K_1 <= ev.key <= pygame.K_6:
-                        terrain_kind = TERRAIN_KINDS[ev.key - pygame.K_1]
+                    if pygame.K_1 <= ev.key <= pygame.K_9:
+                        terrain_index = ev.key - pygame.K_1
+                        if terrain_index >= len(TERRAIN_KINDS):
+                            continue
+                        terrain_kind = TERRAIN_KINDS[terrain_index]
                         if selected_terrain is not None:
                             terrain[selected_terrain]["kind"] = terrain_kind
                             dirty = True
@@ -529,7 +534,7 @@ def main() -> None:
             hud_lines.append("S=Save R=Reload TAB=Next [/] Count Arrows=Move Drag=Move E/T/G=Mode Q=Quit")
         else:
             if mode == "terrain":
-                hud_lines.append("Drag=New/Move 1-6=Kind RightClick=Delete E/T/G=Mode S=Save R=Reload Q=Quit")
+                hud_lines.append("Drag=New/Move 1-8=Kind RightClick=Delete E/T/G=Mode S=Save R=Reload Q=Quit")
             else:
                 hud_lines.append("Drag=New/Move RightClick=Delete E/T/G=Mode S=Save R=Reload Q=Quit")
 

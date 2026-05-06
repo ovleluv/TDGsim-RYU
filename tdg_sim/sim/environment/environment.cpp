@@ -102,7 +102,7 @@ EnvMoveResponse Environment::RequestMoveEntity(int id,Point p){
     auto it = entities.find(id);
     if (it == entities.end()) return EnvMoveResponse::NotFound;
 
-    if (GetTerrainAt(p) == TerrainType::RIVER) {
+    if (!IsTerrainPassable(p)) {
         return EnvMoveResponse::InvalidTerrain;
     }
 

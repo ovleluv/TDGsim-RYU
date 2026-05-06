@@ -38,6 +38,39 @@ public:
         assert(InBounds(p));
         return terrainMap[p.y][p.x];
     }
+
+    TerrainEffect GetTerrainEffectAt(Point p) const {
+        assert(InBounds(p));
+        return GetTerrainEffect(GetTerrainAt(p));
+    }
+
+    bool IsTerrainPassable(Point p) const noexcept {
+        return InBounds(p) && GetTerrainEffect(terrainMap[p.y][p.x]).passable;
+    }
+
+    float GetMoveTimeMultiplierAt(Point p) const noexcept {
+        if (!InBounds(p)) return 1.0f;
+        return GetTerrainEffect(terrainMap[p.y][p.x]).moveTimeMultiplier;
+    }
+
+    float GetVisionMultiplierAt(Point p) const noexcept {
+        if (!InBounds(p)) return 1.0f;
+        return GetTerrainEffect(terrainMap[p.y][p.x]).visionMultiplier;
+    }
+
+    float GetRiflePkillMultiplierAt(Point p) const noexcept {
+        if (!InBounds(p)) return 1.0f;
+        return GetTerrainEffect(terrainMap[p.y][p.x]).riflePkillMultiplier;
+    }
+
+    float GetArtilleryPkillMultiplierAt(Point p) const noexcept {
+        if (!InBounds(p)) return 1.0f;
+        return GetTerrainEffect(terrainMap[p.y][p.x]).artilleryPkillMultiplier;
+    }
+
+    bool TerrainBlocksLineOfSight(Point p) const noexcept {
+        return InBounds(p) && GetTerrainEffect(terrainMap[p.y][p.x]).blocksLineOfSight;
+    }
     // 탐색 실패 : return nullptr, 성공 : return Entity*
     const Entity* QueryEntityById(int id) const noexcept {
         auto it = entities.find(id);
