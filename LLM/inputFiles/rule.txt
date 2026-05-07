@@ -18,6 +18,9 @@ Infantry 상세:
 - P(hit_rifle)=0.7
 - P(kill|hit_rifle)=0.1
 - vision=200m
+- hill 위 병사는 vision 1.25배(250m), mountain 위 병사는 vision 1.5배(300m)
+- 피격 병사가 hill/mountain 위에 있으면 사망 확률 감소: hill rifle×0.85/artillery×0.9, mountain rifle×0.65/artillery×0.75
+- mountain은 중간 시야선(Line of Sight)을 차단하며, hill은 시야선을 차단하지 않는다.
 - Soldier는 AIM/감지/사격 자체 수행
 - Soldier 간 경로 방해(병목) 없음, 서로 통과 가능
 
@@ -34,6 +37,8 @@ MOVE:
 - 단일 MOVE 또는 다단 MOVE 가능
 - 우회·지연·경유지 설계 가능
 - 소대원 이동 간 delay 있음
+- terrain에 따라 이동 delay가 변한다: plain/bridge×1.0, hill×1.5, mountain×2.5
+- water는 이동 불가, bridge는 water 위 통과 가능 지형
 
 HOLD:
 - 더 이상 이동하지 않고 고정
@@ -49,8 +54,12 @@ BOMBARD:
 - blue 셀 : 강
 - orange 셀 : 다리
 - gray 셀 : 목표 구역 
+- khaki/olive 셀 : 언덕(hill)
+- dark gray 셀 : 산/능선(mountain)
 - 중앙 큰 강(water)은 무조건 이동 불가
 - 강을 건널 수 있는 다리는 2개 존재 (west side 1개, east side 1개)
+- hill/mountain 지형 객체는 총 6개 존재: hill 3개, mountain 3개
+- mountain 지형은 시야를 높이지만, 두 병사 사이의 중간 지형으로 놓이면 관측/탐지를 차단한다.
 
 목표구역 위치 : 
 - BG_Obj1: north west
@@ -72,14 +81,16 @@ BOMBARD:
 - 조건 분기 명령 금지 (예: "적 발견 시 이동")
 - 다리는 파괴 불가
 - Soldier 지연·우회를 위해 다단 MOVE 권장
+- 경로탐색은 현재 BFS 기반이므로 hill/mountain 이동 비용을 우회 경로 선택에는 반영하지 않는다.
+- hill/mountain 이동 비용은 실제 Soldier MOVE delay 계산에 반영된다.
 
 ────────────────────────────────
 [작전 성공 기준]
 
 각 BG Obj 점수 가중치 w:
-- Obj1 = 0.6
-- Obj2 = 0.2
-- Obj3 = 0.2
+- Obj1 = 0.25
+- Obj2 = 0.25
+- Obj3 = 0.5
 
 점령 상태 c:
 - 아군만 존재 → 1.0점
