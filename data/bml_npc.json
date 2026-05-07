@@ -3,6 +3,6 @@
     { "entity": "RED-PLT1", "task": "HOLD"},
     { "entity": "RED-PLT2", "task": "HOLD"},
     { "entity": "RED-PLT3", "task": "HOLD"},
-    { "entity": "RED-PLT4", "task": "MOVE","to": [121, 17]}
+    { "entity": "RED-PLT4", "task": "MOVE","to": [73, 81]}
   ]
 }
