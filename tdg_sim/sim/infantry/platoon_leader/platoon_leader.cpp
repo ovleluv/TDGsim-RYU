@@ -1,5 +1,26 @@
 #include "platoon_leader.hpp"
 #include <algorithm>
+#include <cmath>
+#include <sstream>
+
+namespace {
+    constexpr int kMemberGoalReachRadius = 2;
+    constexpr int kCentroidGoalReachRadius = 3;
+    constexpr float kMemberGoalReachRatio = 0.80f;
+    constexpr float kMoveProgressCheckInterval = 30.0f;
+    constexpr float kMoveStallTimeout = 180.0f;
+    constexpr float kMoveOrderTimeout = 2400.0f;
+    constexpr float kGoalNotReachedLogInterval = 60.0f;
+
+    int ManhattanDistance(Point lhs, Point rhs) {
+        return std::abs(lhs.x - rhs.x) + std::abs(lhs.y - rhs.y);
+    }
+
+    int RequiredReachedCount(int aliveCount) {
+        return static_cast<int>(std::ceil(
+            static_cast<float>(aliveCount) * kMemberGoalReachRatio));
+    }
+}
 
 void PlatoonLeader::ResetHoldPlan(const Order& ord) {
     plan_ = PlatoonManeuverPlan{};
@@ -14,7 +35,84 @@ void PlatoonLeader::ResetHoldPlan(const Order& ord) {
     }
 }
 
-bool PlatoonLeader::IsCurrentGoalReached(Environment& environment) const {
+void PlatoonLeader::ClearMoveProgressTracking() {
+    activeOrderStartTime_ = -1.0f;
+    lastMoveProgressTime_ = -1.0f;
+    lastGoalNotReachedLogTime_ = -1.0f;
+    lastMovePositions_.clear();
+}
+
+void PlatoonLeader::ResetMoveProgressTracking(Environment& environment) {
+    const float now = this->engine->GetCurrentTime();
+    activeOrderStartTime_ = now;
+    lastMoveProgressTime_ = now;
+    lastGoalNotReachedLogTime_ = now - kGoalNotReachedLogInterval;
+    lastMovePositions_.clear();
+
+    for (int memberId : plan_.orderedMemberIds) {
+        if (!environment.QueryEntityById(memberId)) {
+            continue;
+        }
+        lastMovePositions_[memberId] = environment.QueryEntityPosById(memberId);
+    }
+}
+
+bool PlatoonLeader::RefreshMoveProgress(Environment& environment) {
+    if (currentTask_ != TaskType::MOVE) {
+        return false;
+    }
+
+    bool progressed = false;
+    for (int memberId : plan_.orderedMemberIds) {
+        if (!environment.QueryEntityById(memberId)) {
+            continue;
+        }
+
+        Point currentPos = environment.QueryEntityPosById(memberId);
+        auto it = lastMovePositions_.find(memberId);
+        if (it == lastMovePositions_.end() || it->second != currentPos) {
+            lastMovePositions_[memberId] = currentPos;
+            progressed = true;
+        }
+    }
+
+    if (progressed) {
+        lastMoveProgressTime_ = this->engine->GetCurrentTime();
+    }
+    return progressed;
+}
+
+bool PlatoonLeader::IsMoveTimedOut(Environment& environment) {
+    if (currentTask_ != TaskType::MOVE || !activeOrder_.has_value()) {
+        return false;
+    }
+
+    RefreshMoveProgress(environment);
+
+    const float now = this->engine->GetCurrentTime();
+    const float activeElapsed = (activeOrderStartTime_ >= 0.0f)
+        ? now - activeOrderStartTime_
+        : 0.0f;
+    const float idleElapsed = (lastMoveProgressTime_ >= 0.0f)
+        ? now - lastMoveProgressTime_
+        : 0.0f;
+
+    const bool stalled = idleElapsed >= kMoveStallTimeout;
+    const bool expired = activeElapsed >= kMoveOrderTimeout;
+    if (!stalled && !expired) {
+        return false;
+    }
+
+    LogSimulation(now, this->GetNameWithId(),
+                  "MOVE_TIMEOUT",
+                  "reason=", stalled ? "stalled" : "expired",
+                  " elapsed=", activeElapsed,
+                  " idle=", idleElapsed,
+                  " pending=", pendingOrders_.size());
+    return true;
+}
+
+bool PlatoonLeader::IsCurrentGoalReached(Environment& environment) {
     if (currentTask_ != TaskType::MOVE) {
         return true;
     }
@@ -24,17 +122,86 @@ bool PlatoonLeader::IsCurrentGoalReached(Environment& environment) const {
     if (plan_.orderedMemberIds.empty()) {
         return true;
     }
+
+    int aliveCount = 0;
+    int reachedCount = 0;
+    long long sumX = 0;
+    long long sumY = 0;
+    std::ostringstream missingSample;
+    int missingLogged = 0;
+
     for (int memberId : plan_.orderedMemberIds) {
-        auto goalIt = plan_.memberGoalPositions.find(memberId);
-        if (goalIt == plan_.memberGoalPositions.end()) {
-            return false;
+        if (!environment.QueryEntityById(memberId)) {
+            continue;
         }
+
+        ++aliveCount;
+        auto goalIt = plan_.memberGoalPositions.find(memberId);
         Point currentPos = environment.QueryEntityPosById(memberId);
-        if (currentPos != goalIt->second) {
-            return false;
+        if (goalIt == plan_.memberGoalPositions.end()) {
+            if (missingLogged < 5) {
+                missingSample << " id=" << memberId
+                              << " cur=(" << currentPos.x << "," << currentPos.y << ")"
+                              << " goal=missing";
+                ++missingLogged;
+            }
+            continue;
+        }
+
+        sumX += currentPos.x;
+        sumY += currentPos.y;
+
+        const int memberDist = ManhattanDistance(currentPos, goalIt->second);
+        if (memberDist <= kMemberGoalReachRadius) {
+            ++reachedCount;
+        } else if (missingLogged < 5) {
+            missingSample << " id=" << memberId
+                          << " cur=(" << currentPos.x << "," << currentPos.y << ")"
+                          << " goal=(" << goalIt->second.x << "," << goalIt->second.y << ")"
+                          << " dist=" << memberDist;
+            ++missingLogged;
         }
     }
-    return true;
+
+    if (aliveCount == 0) {
+        return true;
+    }
+
+    const int requiredReached = RequiredReachedCount(aliveCount);
+    const bool memberThresholdReached = reachedCount >= requiredReached;
+
+    Point centroid{
+        static_cast<int>(sumX / aliveCount),
+        static_cast<int>(sumY / aliveCount)
+    };
+    const int centroidDist = ManhattanDistance(centroid, plan_.currentGoal);
+    const bool centroidReached = centroidDist <= kCentroidGoalReachRadius;
+
+    if (memberThresholdReached || centroidReached) {
+        LogSimulation(this->engine->GetCurrentTime(), this->GetNameWithId(),
+                      "MOVE_GOAL_REACHED",
+                      "reached=", reachedCount, "/", aliveCount,
+                      " required=", requiredReached,
+                      " centroid=(", centroid.x, ",", centroid.y, ")",
+                      " goal=(", plan_.currentGoal.x, ",", plan_.currentGoal.y, ")",
+                      " centroidDist=", centroidDist);
+        return true;
+    }
+
+    const float now = this->engine->GetCurrentTime();
+    if (lastGoalNotReachedLogTime_ < 0.0f ||
+        now - lastGoalNotReachedLogTime_ >= kGoalNotReachedLogInterval) {
+        lastGoalNotReachedLogTime_ = now;
+        LogSimulation(now, this->GetNameWithId(),
+                      "MOVE_GOAL_PENDING",
+                      "reached=", reachedCount, "/", aliveCount,
+                      " required=", requiredReached,
+                      " centroid=(", centroid.x, ",", centroid.y, ")",
+                      " goal=(", plan_.currentGoal.x, ",", plan_.currentGoal.y, ")",
+                      " centroidDist=", centroidDist,
+                      " sample_unreached=", missingSample.str());
+    }
+    return false;
 }
 
 bool PlatoonLeader::ActivateNextOrder(Environment& environment) {
@@ -65,6 +232,7 @@ bool PlatoonLeader::ActivateNextOrder(Environment& environment) {
 
             currentTask_ = TaskType::MOVE;
             activeOrder_ = ord;
+            ResetMoveProgressTracking(environment);
             LogSimulation(this->engine->GetCurrentTime(), this->GetNameWithId(),
                           "ACTIVATE_ORDER", "task=MOVE to=", ord.to.x, ",", ord.to.y);
             return true;
@@ -73,6 +241,7 @@ bool PlatoonLeader::ActivateNextOrder(Environment& environment) {
         if (ord.task == TaskType::HOLD) {
             currentTask_ = TaskType::HOLD;
             activeOrder_ = ord;
+            ClearMoveProgressTracking();
             ResetHoldPlan(ord);
             LogSimulation(this->engine->GetCurrentTime(), this->GetNameWithId(),
                           "ACTIVATE_ORDER", "task=HOLD");
@@ -82,6 +251,7 @@ bool PlatoonLeader::ActivateNextOrder(Environment& environment) {
 
     activeOrder_.reset();
     currentTask_ = TaskType::HOLD;
+    ClearMoveProgressTracking();
     Order idle;
     idle.task = TaskType::HOLD;
     idle.hasDestination = false;
@@ -145,6 +315,7 @@ bool PlatoonLeader::ExtTransFn(const std::string& inPort, const std::any& anyMes
             pendingOrders_.push_back(ord);
         }
         activeOrder_.reset();
+        ClearMoveProgressTracking();
         plan_ = PlatoonManeuverPlan{};
         plan_.orderedMemberIds = memberIds_;
         plan_.success = true;
@@ -159,10 +330,8 @@ bool PlatoonLeader::ExtTransFn(const std::string& inPort, const std::any& anyMes
     } else if (inPort == "SoldierRep") {
         SoldierRep message;
         if (!TryCastMessage(anyMessage, message, "PlatoonLeader::ExtTransFn.SoldierRep")) return false;
-        if (!message.enemyDetected) { // when enemyDetected==true, Soldier should be occupied by Fire exclusively
-            this->SetCurState("DECIDE");
-            this->t_dec = 0.0f;
-        }
+        this->SetCurState("DECIDE");
+        this->t_dec = 0.0f;
     } else if (inPort == "FireFinished"){
         this->SetCurState("DECIDE");
         this->t_dec = 0.0f;
@@ -236,6 +405,9 @@ bool PlatoonLeader::OutputFn() {
             return ActivateNextOrder(environment);
         }
         if (currentTask_ == TaskType::MOVE && IsCurrentGoalReached(environment)) {
+            return ActivateNextOrder(environment);
+        }
+        if (currentTask_ == TaskType::MOVE && IsMoveTimedOut(environment)) {
             return ActivateNextOrder(environment);
         }
         return activeOrder_.has_value();
@@ -402,12 +574,20 @@ bool PlatoonLeader::IntTransFn() {
     if (this->GetCurState() == "DECIDE") {
         this->SetCurState("WAIT");
         this->t_dec = 0.0f;
+    } else if (this->GetCurState() == "WAIT" && currentTask_ == TaskType::MOVE) {
+        this->SetCurState("DECIDE");
+        this->t_dec = 0.0f;
     }
     return true;
 }
 
 float PlatoonLeader::TimeAdvanceFn() {
-    if (this->GetCurState() == "WAIT") return TIME_INF;
+    if (this->GetCurState() == "WAIT") {
+        if (currentTask_ == TaskType::MOVE && activeOrder_.has_value()) {
+            return kMoveProgressCheckInterval;
+        }
+        return TIME_INF;
+    }
     if (this->GetCurState() == "DECIDE") return t_dec;
     return -1;
 }

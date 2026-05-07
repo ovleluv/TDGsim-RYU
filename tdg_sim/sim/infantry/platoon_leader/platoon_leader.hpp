@@ -6,6 +6,7 @@
 #include "platoon_pathfinding.hpp"
 #include <deque>
 #include <optional>
+#include <unordered_map>
 
 class PlatoonLeader : public AtomicModel{
 private:
@@ -15,11 +16,19 @@ private:
     PlatoonManeuverPlan plan_;
     std::deque<Order> pendingOrders_;
     std::optional<Order> activeOrder_;
+    float activeOrderStartTime_ = -1.0f;
+    float lastMoveProgressTime_ = -1.0f;
+    float lastGoalNotReachedLogTime_ = -1.0f;
+    std::unordered_map<int, Point> lastMovePositions_;
 
     float t_dec = 0.0f;
 
     bool ActivateNextOrder(Environment& environment);
-    bool IsCurrentGoalReached(Environment& environment) const;
+    bool IsCurrentGoalReached(Environment& environment);
+    bool IsMoveTimedOut(Environment& environment);
+    bool RefreshMoveProgress(Environment& environment);
+    void ResetMoveProgressTracking(Environment& environment);
+    void ClearMoveProgressTracking();
     void ResetHoldPlan(const Order& ord);
 public:
     PlatoonLeader(Engine* engine, int entityId, std::vector<int> *membersId);
