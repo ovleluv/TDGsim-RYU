@@ -61,23 +61,26 @@ BOMBARD:
 - khaki/olive 셀 : 언덕(hill)
 - dark gray 셀 : 산/능선(mountain)
 - 중앙 큰 강(water)은 무조건 이동 불가
-- 강을 건널 수 있는 다리는 2개 존재 (west side 1개, east side 1개)
+- bridge 지형 객체는 총 4개 존재하며, water 위에서만 통과 가능 지형으로 취급된다.
 - hill/mountain 지형 객체는 총 6개 존재: hill 3개, mountain 3개
 - mountain 지형은 시야를 높이지만, 두 병사 사이의 중간 지형으로 놓이면 관측/탐지를 차단한다.
 
 목표구역 위치 : 
-- BG_Obj1: north west
-- BG_Obj2: south west
-- BG_Obj3: south east
+- BG_Obj1: south center, central crossing vicinity (x=65~81, y=73~89)
+- BG_Obj2: north east (x=110~133, y=5~29)
+- BG_Obj3: south east (x=110~133, y=64~88)
 
 아군 초기 위치:
-- south west
+- BLUE 1소대: west/north west (anchor x=14, y=14)
+- BLUE 2소대: west/north west (anchor x=14, y=20)
+- BLUE 3소대: west/north west (anchor x=14, y=26)
+- BLUE 포병: far west/north west (anchor x=3, y=13)
 
 적군 초기 위치:
-- RED 1소대: center, defending the west side bridge
-- RED 2소대: center, defending the west side bridge
-- RED 3소대: BG_Obj1, defending the west side bridge 
-- RED 4소대: north east, moving to defend (reinforce) BG_Obj1
+- RED 1소대: BG_Obj2 / north east (anchor x=112, y=23), HOLD
+- RED 2소대: BG_Obj2 / north east (anchor x=112, y=15), HOLD
+- RED 3소대: BG_Obj1 / south center (anchor x=71, y=78), HOLD
+- RED 4소대: BG_Obj3 / south east (anchor x=112, y=66), MOVE to BG_Obj1 center vicinity ([73,81])
 
 ────────────────────────────────
 [기술적 엔진 제약 조건]
@@ -93,17 +96,19 @@ BOMBARD:
 [작전 성공 기준]
 
 각 BG Obj 점수 가중치 w:
-- Obj1 = 0.25
-- Obj2 = 0.25
-- Obj3 = 0.5
+- Obj1/BG_Obj1 = 0.25
+- Obj2/BG_Obj2 = 0.25
+- Obj3/BG_Obj3 = 0.5
 
 점령 상태 c:
-- 아군만 존재 → 1.0점
-- 아군+적군 혼재 → 0.5점
-- 아군 없음 → 0점
+- 목표 구역 내 생존 아군이 1명 이상이고 적군이 0명 → c=1.0
+- 목표 구역 내 생존 아군과 적군이 모두 1명 이상 → c=0.5
+- 목표 구역 내 생존 아군이 0명 → c=0.0
 
 최종 점수:
-- sum of w*c
+- totalScore = sum of w*c
+- 점수는 시뮬레이션 종료 시점에 각 목표 구역 안의 생존 BLUE/RED 인원 수로 계산한다.
 
 목표:
-- 총점을 최대한 높일 수 있는 방책(CoA) 작성
+- Obj1/Obj2/Obj3 점령 점수의 총합을 최대화하는 방책(CoA) 작성
+- Obj3는 0.5 가중치로 가장 중요하며, Obj1과 Obj2는 각각 0.25 가중치이다.
