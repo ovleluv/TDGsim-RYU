@@ -12,7 +12,7 @@ EXCLUDE_COLUMNS = {
     "goal1Score",
     "goal2Score",
     "goal3Score",
-    "totalScore",
+    #"totalScore",
 }
 
 

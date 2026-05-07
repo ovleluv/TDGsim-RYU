@@ -3,88 +3,90 @@
     {
       "entity": "BLUE-ART",
       "task": "BOMBARD",
-      "point": [112, 66]
-    },
-
-    {
-      "entity": "BLUE-PLT1",
-      "task": "MOVE",
-      "to": [45, 78]
+      "point": [112, 19]
     },
     {
       "entity": "BLUE-PLT1",
       "task": "MOVE",
-      "to": [54, 80]
+      "to": [60, 16]
     },
     {
       "entity": "BLUE-PLT1",
       "task": "MOVE",
-      "to": [63, 80]
+      "to": [73, 19]
     },
     {
       "entity": "BLUE-PLT1",
       "task": "MOVE",
-      "to": [69, 82]
+      "to": [88, 28]
+    },
+    {
+      "entity": "BLUE-PLT1",
+      "task": "MOVE",
+      "to": [103, 50]
+    },
+    {
+      "entity": "BLUE-PLT1",
+      "task": "MOVE",
+      "to": [118, 76]
     },
     {
       "entity": "BLUE-PLT1",
       "task": "HOLD"
     },
-
     {
       "entity": "BLUE-PLT2",
       "task": "MOVE",
-      "to": [45, 80]
+      "to": [60, 21]
     },
     {
       "entity": "BLUE-PLT2",
       "task": "MOVE",
-      "to": [54, 81]
+      "to": [76, 21]
     },
     {
       "entity": "BLUE-PLT2",
       "task": "MOVE",
-      "to": [72, 82]
+      "to": [91, 32]
     },
     {
       "entity": "BLUE-PLT2",
       "task": "MOVE",
-      "to": [94, 81]
+      "to": [106, 57]
     },
     {
       "entity": "BLUE-PLT2",
       "task": "MOVE",
-      "to": [111, 76]
+      "to": [121, 80]
     },
     {
       "entity": "BLUE-PLT2",
       "task": "HOLD"
     },
-
     {
       "entity": "BLUE-PLT3",
       "task": "MOVE",
-      "to": [45, 83]
+      "to": [58, 23]
     },
     {
       "entity": "BLUE-PLT3",
       "task": "MOVE",
-      "to": [54, 82]
+      "to": [70, 23]
     },
     {
       "entity": "BLUE-PLT3",
       "task": "MOVE",
-      "to": [72, 83]
+      "to": [86, 35]
     },
     {
       "entity": "BLUE-PLT3",
       "task": "MOVE",
-      "to": [94, 82]
+      "to": [101, 60]
     },
     {
       "entity": "BLUE-PLT3",
       "task": "MOVE",
-      "to": [118, 82]
+      "to": [124, 72]
     },
     {
       "entity": "BLUE-PLT3",
