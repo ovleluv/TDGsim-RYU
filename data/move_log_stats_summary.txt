@@ -6,61 +6,98 @@
 BLUE-PLT1
 
 ACTIVATE_ORDER(MOVE): 250
-MOVE_GOAL_REACHED: 248
-MOVE_REPLAN: 52
-MOVE_TIMEOUT: 54
-MOVE_TIMEOUT_ADVANCE: 2
-거의 모든 MOVE가 목표 도달 판정까지 갑니다. 문제는 주로 118,76 목표입니다(2회).
-활성화 좌표: 60,16: 50회, 73,19: 50회, 88,28: 50회, 103,50: 50회, 118,76: 50회
-도달 좌표: 60,16: 50회, 73,19: 50회, 88,28: 50회, 103,50: 50회, 118,76: 48회
-재경로 좌표: 118,76: 52회
+MOVE_GOAL_REACHED: 250
+MOVE_REPLAN: 0
+MOVE_TIMEOUT: 0
+MOVE_TIMEOUT_ADVANCE: 0
+DEAD: 132
+모든 MOVE가 최종 타임아웃 없이 처리되었습니다.
+사망 로그: 132회, 사망 발생 실행: 45/50회, 실행당 평균/최대 사망: 2.64/11명
+활성화 좌표: 60,18: 50회, 73,19: 50회, 92,19: 50회, 108,20: 50회, 116,20: 50회
+도달 좌표: 60,18: 50회, 73,19: 50회, 92,19: 50회, 108,20: 50회, 116,20: 50회
+재경로 좌표: 없음
 
 BLUE-PLT2
 
 ACTIVATE_ORDER(MOVE): 250
-MOVE_GOAL_REACHED: 215
-MOVE_REPLAN: 70
-MOVE_TIMEOUT: 105
-MOVE_TIMEOUT_ADVANCE: 35
-대부분의 MOVE는 도달하지만, 일부 목표에서 재경로 후에도 실패합니다. 문제는 주로 121,80 목표입니다(35회).
-활성화 좌표: 60,21: 50회, 76,21: 50회, 91,32: 50회, 106,57: 50회, 121,80: 50회
-도달 좌표: 60,21: 50회, 76,21: 50회, 91,32: 50회, 106,57: 50회, 121,80: 15회
-재경로 좌표: 121,80: 70회
+MOVE_GOAL_REACHED: 250
+MOVE_REPLAN: 2
+MOVE_TIMEOUT: 2
+MOVE_TIMEOUT_ADVANCE: 0
+DEAD: 191
+모든 MOVE가 최종 타임아웃 없이 처리되었습니다.
+사망 로그: 191회, 사망 발생 실행: 48/50회, 실행당 평균/최대 사망: 3.82/24명
+활성화 좌표: 60,21: 50회, 76,21: 50회, 91,32: 50회, 106,57: 50회, 114,74: 50회
+도달 좌표: 60,21: 50회, 76,21: 50회, 91,32: 50회, 106,57: 50회, 114,74: 50회
+재경로 좌표: 114,74: 2회
 
 BLUE-PLT3
 
 ACTIVATE_ORDER(MOVE): 250
-MOVE_GOAL_REACHED: 200
-MOVE_REPLAN: 104
-MOVE_TIMEOUT: 154
-MOVE_TIMEOUT_ADVANCE: 50
-대부분의 MOVE는 도달하지만, 일부 목표에서 재경로 후에도 실패합니다. 124,72 이동은 50회 모두 재경로 후에도 MOVE_TIMEOUT_ADVANCE로 넘어갑니다.
-활성화 좌표: 58,23: 50회, 70,23: 50회, 86,35: 50회, 101,60: 50회, 124,72: 50회
-도달 좌표: 58,23: 50회, 70,23: 50회, 86,35: 50회, 101,60: 50회
-재경로 좌표: 124,72: 100회, 101,60: 4회
+MOVE_GOAL_REACHED: 242
+MOVE_REPLAN: 16
+MOVE_TIMEOUT: 23
+MOVE_TIMEOUT_ADVANCE: 7
+DEAD: 58
+거의 모든 MOVE가 목표 도달 판정까지 갑니다. 문제는 주로 116,82 목표입니다(7회).
+사망 로그: 58회, 사망 발생 실행: 14/50회, 실행당 평균/최대 사망: 1.16/25명, 전멸 추정 실행: 1회
+미도달 추적: MOVE_TIMEOUT_ADVANCE 실행 7회 중 사망 없음 2회, 사망 있음 5회
+마지막 미도달 샘플: log_simulation_exp002.txt: reached=13/25, required=20, centroid=(116,78), goal=(116,82), centroidDist=4, sample_unreached=id=52 cur=(115,75) goal=(115,82) dist=7 id=53 cur=(118,72) goal=(118,83) dist=11 id=56 cur=(115,75) goal=(116,82) dist=8 id=58 cur=(116,75) goal=(116,80) dist=5 id=61 cur=(117,7...
+활성화 좌표: 58,23: 50회, 70,23: 50회, 86,35: 50회, 101,60: 50회, 116,82: 50회
+도달 좌표: 58,23: 50회, 70,23: 50회, 86,35: 50회, 101,60: 50회, 116,82: 42회
+재경로 좌표: 116,82: 16회
+
+RED-PLT1
+
+ACTIVATE_ORDER(MOVE): 0
+MOVE_GOAL_REACHED: 0
+MOVE_REPLAN: 0
+MOVE_TIMEOUT: 0
+MOVE_TIMEOUT_ADVANCE: 0
+DEAD: 1250
+MOVE 명령이 활성화되지 않았습니다.
+사망 로그: 1250회, 사망 발생 실행: 50/50회, 실행당 평균/최대 사망: 25.00/25명
+활성화 좌표: 없음
+도달 좌표: 없음
+재경로 좌표: 없음
+
+RED-PLT2
+
+ACTIVATE_ORDER(MOVE): 0
+MOVE_GOAL_REACHED: 0
+MOVE_REPLAN: 0
+MOVE_TIMEOUT: 0
+MOVE_TIMEOUT_ADVANCE: 0
+DEAD: 1086
+MOVE 명령이 활성화되지 않았습니다.
+사망 로그: 1086회, 사망 발생 실행: 50/50회, 실행당 평균/최대 사망: 21.72/24명
+활성화 좌표: 없음
+도달 좌표: 없음
+재경로 좌표: 없음
 
 RED-PLT4
 
 ACTIVATE_ORDER(MOVE): 50
 MOVE_GOAL_REACHED: 0
 MOVE_REPLAN: 100
-MOVE_TIMEOUT: 150
-MOVE_TIMEOUT_ADVANCE: 50
-MOVE_GOAL_REACHED가 없어 해당 MOVE 축선은 목표 도달에 실패하고 있습니다. 73,81 이동은 50회 모두 재경로 후에도 MOVE_TIMEOUT_ADVANCE로 넘어갑니다.
+MOVE_TIMEOUT: 148
+MOVE_TIMEOUT_ADVANCE: 48
+DEAD: 140
+MOVE_GOAL_REACHED가 없어 해당 MOVE 축선은 목표 도달에 실패하고 있습니다. 문제는 주로 73,81 목표입니다(48회).
+사망 로그: 140회, 사망 발생 실행: 8/50회, 실행당 평균/최대 사망: 2.80/25명, 전멸 추정 실행: 4회
+미도달 추적: MOVE_TIMEOUT_ADVANCE 실행 48회 중 사망 없음 42회, 사망 있음 6회
+미도달 추적: 전멸로 MOVE_TIMEOUT_ADVANCE까지 가지 못한 실행 2회
+마지막 미도달 샘플: log_simulation_exp001.txt: reached=7/25, required=20, centroid=(78,81), goal=(73,81), centroidDist=5, sample_unreached=id=157 cur=(84,79) goal=(72,79) dist=12 id=159 cur=(84,80) goal=(74,80) dist=10 id=160 cur=(84,79) goal=(73,78) dist=12 id=161 cur=(84,78) goal=(72,81) dist=15 id=162 cur=(84,80...
 활성화 좌표: 73,81: 50회
 도달 좌표: 없음
 재경로 좌표: 73,81: 100회
 
 좌표별 MOVE_TIMEOUT_ADVANCE:
 
-BLUE-PLT1 -> 118,76: 2회
-BLUE-PLT2 -> 121,80: 35회
-BLUE-PLT3 -> 124,72: 50회
-RED-PLT4 -> 73,81: 50회
+BLUE-PLT3 -> 116,82: 7회
+RED-PLT4 -> 73,81: 48회
 
 MOVE_TIMEOUT_ADVANCE 사유:
 
-BLUE-PLT1: max_replans: 2회
-BLUE-PLT2: max_replans: 35회
-BLUE-PLT3: max_replans: 50회
-RED-PLT4: max_replans: 50회
+BLUE-PLT3: max_replans: 7회
+RED-PLT4: max_replans: 48회
