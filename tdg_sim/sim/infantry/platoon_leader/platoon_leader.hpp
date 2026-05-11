@@ -19,6 +19,7 @@ private:
     float activeOrderStartTime_ = -1.0f;
     float lastMoveProgressTime_ = -1.0f;
     float lastGoalNotReachedLogTime_ = -1.0f;
+    int moveRetryCount_ = 0;
     std::unordered_map<int, Point> lastMovePositions_;
 
     float t_dec = 0.0f;
@@ -26,6 +27,7 @@ private:
     bool ActivateNextOrder(Environment& environment);
     bool IsCurrentGoalReached(Environment& environment);
     bool IsMoveTimedOut(Environment& environment);
+    bool TryReplanActiveMove(Environment& environment);
     bool RefreshMoveProgress(Environment& environment);
     void ResetMoveProgressTracking(Environment& environment);
     void ClearMoveProgressTracking();

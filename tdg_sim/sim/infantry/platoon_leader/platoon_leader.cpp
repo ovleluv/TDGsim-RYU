@@ -8,9 +8,10 @@ namespace {
     constexpr int kCentroidGoalReachRadius = 3;
     constexpr float kMemberGoalReachRatio = 0.80f;
     constexpr float kMoveProgressCheckInterval = 30.0f;
-    constexpr float kMoveStallTimeout = 180.0f;
+    constexpr float kMoveStallTimeout = 300.0f;
     constexpr float kMoveOrderTimeout = 2400.0f;
     constexpr float kGoalNotReachedLogInterval = 60.0f;
+    constexpr int kMaxMoveReplans = 2;
 
     int ManhattanDistance(Point lhs, Point rhs) {
         return std::abs(lhs.x - rhs.x) + std::abs(lhs.y - rhs.y);
@@ -39,6 +40,7 @@ void PlatoonLeader::ClearMoveProgressTracking() {
     activeOrderStartTime_ = -1.0f;
     lastMoveProgressTime_ = -1.0f;
     lastGoalNotReachedLogTime_ = -1.0f;
+    moveRetryCount_ = 0;
     lastMovePositions_.clear();
 }
 
@@ -108,6 +110,56 @@ bool PlatoonLeader::IsMoveTimedOut(Environment& environment) {
                   "reason=", stalled ? "stalled" : "expired",
                   " elapsed=", activeElapsed,
                   " idle=", idleElapsed,
+                  " pending=", pendingOrders_.size());
+    return true;
+}
+
+bool PlatoonLeader::TryReplanActiveMove(Environment& environment) {
+    if (currentTask_ != TaskType::MOVE || !activeOrder_.has_value()) {
+        return false;
+    }
+
+    const float now = this->engine->GetCurrentTime();
+    const Order& activeOrder = activeOrder_.value();
+    if (!activeOrder.hasDestination) {
+        LogSimulation(now, this->GetNameWithId(),
+                      "MOVE_TIMEOUT_ADVANCE",
+                      "reason=active_move_without_destination",
+                      " pending=", pendingOrders_.size());
+        return false;
+    }
+
+    if (moveRetryCount_ >= kMaxMoveReplans) {
+        LogSimulation(now, this->GetNameWithId(),
+                      "MOVE_TIMEOUT_ADVANCE",
+                      "reason=max_replans",
+                      " replans=", moveRetryCount_,
+                      " max=", kMaxMoveReplans,
+                      " to=", activeOrder.to.x, ",", activeOrder.to.y,
+                      " pending=", pendingOrders_.size());
+        return false;
+    }
+
+    PlatoonManeuverPlan replanned = BuildPlatoonManeuverPlan(memberIds_, activeOrder.to);
+    if (!replanned.success) {
+        LogSimulation(now, this->GetNameWithId(),
+                      "MOVE_TIMEOUT_ADVANCE",
+                      "reason=replan_failed",
+                      " replans=", moveRetryCount_,
+                      " to=", activeOrder.to.x, ",", activeOrder.to.y,
+                      " failure=", replanned.failureReason,
+                      " pending=", pendingOrders_.size());
+        return false;
+    }
+
+    plan_ = replanned;
+    ++moveRetryCount_;
+    ResetMoveProgressTracking(environment);
+    LogSimulation(now, this->GetNameWithId(),
+                  "MOVE_REPLAN",
+                  "attempt=", moveRetryCount_, "/", kMaxMoveReplans,
+                  " to=", activeOrder.to.x, ",", activeOrder.to.y,
+                  " members=", plan_.orderedMemberIds.size(),
                   " pending=", pendingOrders_.size());
     return true;
 }
@@ -232,6 +284,7 @@ bool PlatoonLeader::ActivateNextOrder(Environment& environment) {
 
             currentTask_ = TaskType::MOVE;
             activeOrder_ = ord;
+            moveRetryCount_ = 0;
             ResetMoveProgressTracking(environment);
             LogSimulation(this->engine->GetCurrentTime(), this->GetNameWithId(),
                           "ACTIVATE_ORDER", "task=MOVE to=", ord.to.x, ",", ord.to.y);
@@ -408,6 +461,9 @@ bool PlatoonLeader::OutputFn() {
             return ActivateNextOrder(environment);
         }
         if (currentTask_ == TaskType::MOVE && IsMoveTimedOut(environment)) {
+            if (TryReplanActiveMove(environment)) {
+                return activeOrder_.has_value();
+            }
             return ActivateNextOrder(environment);
         }
         return activeOrder_.has_value();

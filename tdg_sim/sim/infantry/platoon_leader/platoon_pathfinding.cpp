@@ -14,6 +14,23 @@ namespace {
         return environment.IsTerrainPassable(p);
     }
 
+    float TerrainMoveCost(Environment& environment, Point p) {
+        return std::max(0.01f, environment.GetMoveTimeMultiplierAt(p));
+    }
+
+    int ManhattanDistance(Point lhs, Point rhs) {
+        return std::abs(lhs.x - rhs.x) + std::abs(lhs.y - rhs.y);
+    }
+
+    float HeuristicToTargets(Point p,
+                             const std::unordered_set<Point, PointHash>& targets) {
+        int best = std::numeric_limits<int>::max();
+        for (const Point& target : targets) {
+            best = std::min(best, ManhattanDistance(p, target));
+        }
+        return static_cast<float>(best == std::numeric_limits<int>::max() ? 0 : best);
+    }
+
     Point ClampIntoBounds(const Environment& environment, Point p) {
         return {
             std::clamp(p.x, 0, environment.GetWidth() - 1),
@@ -184,19 +201,47 @@ namespace {
             ? std::numeric_limits<int>::max()
             : max_expand;
 
-        std::vector<uint8_t> visited(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0);
+        struct SearchNode {
+            Point pos;
+            float g;
+            float f;
+            int h;
+            int sequence;
+        };
+
+        struct SearchNodeGreater {
+            bool operator()(const SearchNode& lhs, const SearchNode& rhs) const {
+                if (lhs.f != rhs.f) return lhs.f > rhs.f;
+                if (lhs.h != rhs.h) return lhs.h > rhs.h;
+                return lhs.sequence > rhs.sequence;
+            }
+        };
+
+        const std::size_t cellCount =
+            static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+        std::vector<float> bestCost(
+            cellCount,
+            std::numeric_limits<float>::infinity());
+        std::vector<uint8_t> closed(cellCount, 0);
         std::vector<Point> parent(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), Point{-1, -1});
-        std::queue<Point> q;
+        std::priority_queue<SearchNode, std::vector<SearchNode>, SearchNodeGreater> open;
 
         const std::size_t startIdx = indexOf(start);
-        visited[startIdx] = 1;
+        bestCost[startIdx] = 0.0f;
         parent[startIdx] = start;
-        q.push(start);
+        int sequence = 0;
+        const int startH = static_cast<int>(HeuristicToTargets(start, targets));
+        open.push(SearchNode{start, 0.0f, static_cast<float>(startH), startH, sequence++});
 
         int expanded = 0;
-        while (!q.empty() && expanded < limit) {
-            Point current = q.front();
-            q.pop();
+        while (!open.empty() && expanded < limit) {
+            SearchNode node = open.top();
+            open.pop();
+            Point current = node.pos;
+            const std::size_t currentIdx = indexOf(current);
+            if (node.g > bestCost[currentIdx]) continue;
+            if (closed[currentIdx]) continue;
+            closed[currentIdx] = 1;
             ++expanded;
 
             if (targets.find(current) != targets.end()) {
@@ -226,14 +271,25 @@ namespace {
                 Point neighbor{current.x + dir.x, current.y + dir.y};
                 if (!TerrainPassable(environment, neighbor)) continue;
                 std::size_t idx = indexOf(neighbor);
-                if (visited[idx]) continue;
-                visited[idx] = 1;
+                if (closed[idx]) continue;
+
+                const float nextCost = node.g + TerrainMoveCost(environment, neighbor);
+                if (nextCost >= bestCost[idx]) continue;
+
+                bestCost[idx] = nextCost;
                 parent[idx] = current;
-                q.push(neighbor);
+                const float heuristic = HeuristicToTargets(neighbor, targets);
+                open.push(SearchNode{
+                    neighbor,
+                    nextCost,
+                    nextCost + heuristic,
+                    static_cast<int>(heuristic),
+                    sequence++
+                });
             }
         }
 
-        failureReason = "Unable to route member id " + std::to_string(memberId) + " to an available goal tile.";
+        failureReason = "Unable to route member id " + std::to_string(memberId) + " to an available goal tile with A*.";
         return false;
     }
 
