@@ -5,12 +5,15 @@
 당신이 생성한 방책은 시뮬레이션 된다. 시뮬레이션에 대한 설명은 'rule.txt'을 참고하라. 
 방책이 'rule.txt'를 어긋나지 않도록 항상 참조하라.
 시나리오에 대한 초기 데이터는 'scenario.json', 'scenario_view.png'를 참고하라.
+MOVE 명령 시, 로그 기반 MOVE 상태 분석 통계 내용 'move_log_stats_summary'를 참고하라.
+이는 소대별 ACTIVATE_ORDER(MOVE), MOVE_GOAL_REACHED, MOVE_REPLAN, MOVE_TIMEOUT, MOVE_TIMEOUT_ADVANCE와 좌표별 타임아웃 원인을 포함한다.
 출력은 반드시 'bml.json' 출력 형식을 포함할 수 있도록 해라. 
 각각 방책에 대한 자연어 설명은 'bml.json' 출력 형식과 분리하라.
 
 ────────────────────────────────
 [파일 정보]
 result_stats_summary.csv : CoA 시뮬레이션 결과 통계
+move_log_stats_summary.txt : 로그 기반 MOVE 상태 분석 통계.
 snapshot_{number1}_t{number2}p00.png : 시뮬레이션(임의 1개 선택)에 대한 {number2} 시점에서의 snapshot
 bml.json : 출력형식 예시
 rule.txt : 시뮬레이션 설명

@@ -1,0 +1,66 @@
+분석 대상 로그: 50개
+범위: log_simulation_exp001.txt ~ log_simulation_exp050.txt
+
+[MOVE 상태 요약]
+
+BLUE-PLT1
+
+ACTIVATE_ORDER(MOVE): 250
+MOVE_GOAL_REACHED: 248
+MOVE_REPLAN: 52
+MOVE_TIMEOUT: 54
+MOVE_TIMEOUT_ADVANCE: 2
+거의 모든 MOVE가 목표 도달 판정까지 갑니다. 문제는 주로 118,76 목표입니다(2회).
+활성화 좌표: 60,16: 50회, 73,19: 50회, 88,28: 50회, 103,50: 50회, 118,76: 50회
+도달 좌표: 60,16: 50회, 73,19: 50회, 88,28: 50회, 103,50: 50회, 118,76: 48회
+재경로 좌표: 118,76: 52회
+
+BLUE-PLT2
+
+ACTIVATE_ORDER(MOVE): 250
+MOVE_GOAL_REACHED: 215
+MOVE_REPLAN: 70
+MOVE_TIMEOUT: 105
+MOVE_TIMEOUT_ADVANCE: 35
+대부분의 MOVE는 도달하지만, 일부 목표에서 재경로 후에도 실패합니다. 문제는 주로 121,80 목표입니다(35회).
+활성화 좌표: 60,21: 50회, 76,21: 50회, 91,32: 50회, 106,57: 50회, 121,80: 50회
+도달 좌표: 60,21: 50회, 76,21: 50회, 91,32: 50회, 106,57: 50회, 121,80: 15회
+재경로 좌표: 121,80: 70회
+
+BLUE-PLT3
+
+ACTIVATE_ORDER(MOVE): 250
+MOVE_GOAL_REACHED: 200
+MOVE_REPLAN: 104
+MOVE_TIMEOUT: 154
+MOVE_TIMEOUT_ADVANCE: 50
+대부분의 MOVE는 도달하지만, 일부 목표에서 재경로 후에도 실패합니다. 124,72 이동은 50회 모두 재경로 후에도 MOVE_TIMEOUT_ADVANCE로 넘어갑니다.
+활성화 좌표: 58,23: 50회, 70,23: 50회, 86,35: 50회, 101,60: 50회, 124,72: 50회
+도달 좌표: 58,23: 50회, 70,23: 50회, 86,35: 50회, 101,60: 50회
+재경로 좌표: 124,72: 100회, 101,60: 4회
+
+RED-PLT4
+
+ACTIVATE_ORDER(MOVE): 50
+MOVE_GOAL_REACHED: 0
+MOVE_REPLAN: 100
+MOVE_TIMEOUT: 150
+MOVE_TIMEOUT_ADVANCE: 50
+MOVE_GOAL_REACHED가 없어 해당 MOVE 축선은 목표 도달에 실패하고 있습니다. 73,81 이동은 50회 모두 재경로 후에도 MOVE_TIMEOUT_ADVANCE로 넘어갑니다.
+활성화 좌표: 73,81: 50회
+도달 좌표: 없음
+재경로 좌표: 73,81: 100회
+
+좌표별 MOVE_TIMEOUT_ADVANCE:
+
+BLUE-PLT1 -> 118,76: 2회
+BLUE-PLT2 -> 121,80: 35회
+BLUE-PLT3 -> 124,72: 50회
+RED-PLT4 -> 73,81: 50회
+
+MOVE_TIMEOUT_ADVANCE 사유:
+
+BLUE-PLT1: max_replans: 2회
+BLUE-PLT2: max_replans: 35회
+BLUE-PLT3: max_replans: 50회
+RED-PLT4: max_replans: 50회
