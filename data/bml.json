@@ -8,7 +8,7 @@
     {
       "entity": "BLUE-PLT1",
       "task": "MOVE",
-      "to": [60, 16]
+      "to": [60, 18]
     },
     {
       "entity": "BLUE-PLT1",
@@ -18,17 +18,17 @@
     {
       "entity": "BLUE-PLT1",
       "task": "MOVE",
-      "to": [88, 28]
+      "to": [92, 19]
     },
     {
       "entity": "BLUE-PLT1",
       "task": "MOVE",
-      "to": [103, 50]
+      "to": [108, 20]
     },
     {
       "entity": "BLUE-PLT1",
       "task": "MOVE",
-      "to": [118, 76]
+      "to": [116, 20]
     },
     {
       "entity": "BLUE-PLT1",
@@ -57,7 +57,7 @@
     {
       "entity": "BLUE-PLT2",
       "task": "MOVE",
-      "to": [121, 80]
+      "to": [114, 74]
     },
     {
       "entity": "BLUE-PLT2",
@@ -86,7 +86,7 @@
     {
       "entity": "BLUE-PLT3",
       "task": "MOVE",
-      "to": [124, 72]
+      "to": [116, 82]
     },
     {
       "entity": "BLUE-PLT3",
