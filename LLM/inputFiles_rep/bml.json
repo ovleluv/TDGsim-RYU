@@ -1,18 +1,96 @@
 {
   "orders": [
-    { "entity": "RED-PLT1", "task": "HOLD"},
-    { "entity": "RED-PLT2", "task": "HOLD"},
-
-    { "entity": "BLUE-ART", "task": "BOMBARD", "point": [85,31]},
-    { "entity": "BLUE-ART", "task": "BOMBARD", "point": [76,55]},
-
-    { "entity": "BLUE-PLT1", "task": "MOVE", "to": [18,66] },
-    { "entity": "BLUE-PLT1", "task": "MOVE", "to": [20,52] },
-    { "entity": "BLUE-PLT1", "task": "MOVE", "to": [20,46] },
-    { "entity": "BLUE-PLT1", "task": "MOVE", "to": [26,42] },
-
-    { "entity": "BLUE-PLT2", "task": "MOVE", "to": [78,66] },
-    { "entity": "BLUE-PLT2", "task": "MOVE", "to": [70,60] },
-    { "entity": "BLUE-PLT2", "task": "MOVE", "to": [69,52] }
+    {
+      "entity": "BLUE-ART",
+      "task": "BOMBARD",
+      "point": [112, 19]
+    },
+    {
+      "entity": "BLUE-PLT1",
+      "task": "MOVE",
+      "to": [60, 16]
+    },
+    {
+      "entity": "BLUE-PLT1",
+      "task": "MOVE",
+      "to": [73, 19]
+    },
+    {
+      "entity": "BLUE-PLT1",
+      "task": "MOVE",
+      "to": [88, 28]
+    },
+    {
+      "entity": "BLUE-PLT1",
+      "task": "MOVE",
+      "to": [103, 50]
+    },
+    {
+      "entity": "BLUE-PLT1",
+      "task": "MOVE",
+      "to": [118, 76]
+    },
+    {
+      "entity": "BLUE-PLT1",
+      "task": "HOLD"
+    },
+    {
+      "entity": "BLUE-PLT2",
+      "task": "MOVE",
+      "to": [60, 21]
+    },
+    {
+      "entity": "BLUE-PLT2",
+      "task": "MOVE",
+      "to": [76, 21]
+    },
+    {
+      "entity": "BLUE-PLT2",
+      "task": "MOVE",
+      "to": [91, 32]
+    },
+    {
+      "entity": "BLUE-PLT2",
+      "task": "MOVE",
+      "to": [106, 57]
+    },
+    {
+      "entity": "BLUE-PLT2",
+      "task": "MOVE",
+      "to": [121, 80]
+    },
+    {
+      "entity": "BLUE-PLT2",
+      "task": "HOLD"
+    },
+    {
+      "entity": "BLUE-PLT3",
+      "task": "MOVE",
+      "to": [58, 23]
+    },
+    {
+      "entity": "BLUE-PLT3",
+      "task": "MOVE",
+      "to": [70, 23]
+    },
+    {
+      "entity": "BLUE-PLT3",
+      "task": "MOVE",
+      "to": [86, 35]
+    },
+    {
+      "entity": "BLUE-PLT3",
+      "task": "MOVE",
+      "to": [101, 60]
+    },
+    {
+      "entity": "BLUE-PLT3",
+      "task": "MOVE",
+      "to": [124, 72]
+    },
+    {
+      "entity": "BLUE-PLT3",
+      "task": "HOLD"
+    }
   ]
 }

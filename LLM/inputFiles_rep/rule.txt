@@ -11,6 +11,8 @@
 - Soldier 명령: MOVE, HOLD
 - Artillery 명령: BOMBARD
 - 포병명령은 단일 BOMBARD 1회만 내릴 수 있다("task":"BOMBARD"는 단 1개만 수용).
+- PlatoonLeader는 소대별 명령 목록을 pending order로 저장하고, 현재 명령 완료/타임아웃 후 다음 명령을 순차 활성화한다.
+- PlatoonLeader는 SoldierRep 수신 시 enemyDetected 여부와 관계없이 DECIDE 상태로 전환하여 이동 완료/정체 여부를 재평가한다.
 
 Infantry 상세:
 - walking speed ≈ 4km/h (10m/9sec)
@@ -18,6 +20,9 @@ Infantry 상세:
 - P(hit_rifle)=0.7
 - P(kill|hit_rifle)=0.1
 - vision=200m
+- hill 위 병사는 vision 1.25배(250m), mountain 위 병사는 vision 1.5배(300m)
+- 피격 병사가 hill/mountain 위에 있으면 사망 확률 감소: hill rifle×0.85/artillery×0.9, mountain rifle×0.65/artillery×0.75
+- mountain은 중간 시야선(Line of Sight)을 차단하며, hill은 시야선을 차단하지 않는다.
 - Soldier는 AIM/감지/사격 자체 수행
 - Soldier 간 경로 방해(병목) 없음, 서로 통과 가능
 
@@ -34,6 +39,11 @@ MOVE:
 - 단일 MOVE 또는 다단 MOVE 가능
 - 우회·지연·경유지 설계 가능
 - 소대원 이동 간 delay 있음
+- terrain에 따라 이동 delay가 변한다: plain/bridge×1.0, hill×1.5, mountain×2.5
+- water는 이동 불가, bridge는 water 위 통과 가능 지형
+- 소대 MOVE 완료 판정은 전원 exact tile 도달이 아니라, 생존 소대원 80% 이상이 각자 목표 반경 2칸 내에 있거나 소대 중심점이 대표 목표 반경 3칸 내에 있으면 완료로 본다.
+- MOVE 중 PlatoonLeader는 30초 간격으로 진행 상황을 점검한다. 300초 동안 위치 변화가 없거나 단일 MOVE가 2400초를 넘으면 먼저 같은 목표로 재경로를 계산한다.
+- 같은 MOVE 목표 재경로는 최대 2회 시도한다. 재경로 성공 시 MOVE_REPLAN 로그를 남기고 같은 목표 이동을 계속하며, 재경로 실패 또는 횟수 초과 시 MOVE_TIMEOUT_ADVANCE 로그를 남기고 다음 pending order를 활성화한다.
 
 HOLD:
 - 더 이상 이동하지 않고 고정
@@ -49,22 +59,29 @@ BOMBARD:
 - blue 셀 : 강
 - orange 셀 : 다리
 - gray 셀 : 목표 구역 
+- khaki/olive 셀 : 언덕(hill)
+- dark gray 셀 : 산/능선(mountain)
 - 중앙 큰 강(water)은 무조건 이동 불가
-- 강을 건널 수 있는 다리는 3개 존재 (north side 1개, south side 2개)
+- bridge 지형 객체는 총 4개 존재하며, water 위에서만 통과 가능 지형으로 취급된다.
+- hill/mountain 지형 객체는 총 6개 존재: hill 3개, mountain 3개
+- mountain 지형은 시야를 높이지만, 두 병사 사이의 중간 지형으로 놓이면 관측/탐지를 차단한다.
 
 목표구역 위치 : 
-- BG_Obj1: south central island
-- BG_Obj2: north east
-- BG_Obj3: south east
+- BG_Obj1: south center, central crossing vicinity (x=65~81, y=73~89)
+- BG_Obj2: north east (x=110~133, y=5~29)
+- BG_Obj3: south east (x=110~133, y=64~88)
 
 아군 초기 위치:
-- north left
+- BLUE 1소대: west/north west (anchor x=14, y=14)
+- BLUE 2소대: west/north west (anchor x=14, y=20)
+- BLUE 3소대: west/north west (anchor x=14, y=26)
+- BLUE 포병: far west/north west (anchor x=3, y=13)
 
 적군 초기 위치:
-- RED 1소대: BG_Obj2
-- RED 2소대: BG_Obj2
-- RED 3소대: BG_Obj1
-- RED 4소대: BG_Obj3
+- RED 1소대: BG_Obj2 / north east (anchor x=112, y=23), HOLD
+- RED 2소대: BG_Obj2 / north east (anchor x=112, y=15), HOLD
+- RED 3소대: BG_Obj1 / south center (anchor x=71, y=78), HOLD
+- RED 4소대: BG_Obj3 / south east (anchor x=112, y=66), MOVE to BG_Obj1 center vicinity ([73,81])
 
 ────────────────────────────────
 [기술적 엔진 제약 조건]
@@ -72,22 +89,27 @@ BOMBARD:
 - 조건 분기 명령 금지 (예: "적 발견 시 이동")
 - 다리는 파괴 불가
 - Soldier 지연·우회를 위해 다단 MOVE 권장
+- 경로탐색은 terrain 이동 비용 기반 A*를 사용한다. plain/bridge=1.0, hill=1.5, mountain=2.5 비용을 경로 선택에 반영한다.
+- hill/mountain 이동 비용은 경로 선택과 실제 Soldier MOVE delay 계산에 모두 반영된다.
+- 로그에는 MOVE_GOAL_PENDING, MOVE_GOAL_REACHED, MOVE_TIMEOUT, MOVE_REPLAN, MOVE_TIMEOUT_ADVANCE가 기록된다. 명령이 ACTIVATE_ORDER로 실행되었더라도 재경로 실패/횟수 초과 시 목표 도달 없이 다음 명령으로 넘어갈 수 있다.
 
 ────────────────────────────────
 [작전 성공 기준]
 
 각 BG Obj 점수 가중치 w:
-- Obj1 = 0.25
-- Obj2 = 0.25
-- Obj3 = 0.5
+- Obj1/BG_Obj1 = 0.25
+- Obj2/BG_Obj2 = 0.25
+- Obj3/BG_Obj3 = 0.5
 
 점령 상태 c:
-- 아군만 존재 → 1.0점
-- 아군+적군 혼재 → 0.5점
-- 아군 없음 → 0점
+- 목표 구역 내 생존 아군이 1명 이상이고 적군이 0명 → c=1.0
+- 목표 구역 내 생존 아군과 적군이 모두 1명 이상 → c=0.5
+- 목표 구역 내 생존 아군이 0명 → c=0.0
 
 최종 점수:
-- sum of w*c
+- totalScore = sum of w*c
+- 점수는 시뮬레이션 종료 시점에 각 목표 구역 안의 생존 BLUE/RED 인원 수로 계산한다.
 
 목표:
-- 총점을 최대한 높일 수 있는 서로 다른 5개의 방책(CoA) 작성
+- Obj1/Obj2/Obj3 점령 점수의 총합을 최대화하는 방책(CoA) 작성
+- Obj3는 0.5 가중치로 가장 중요하며, Obj1과 Obj2는 각각 0.25 가중치이다.
