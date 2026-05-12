@@ -5,6 +5,7 @@
       "task": "BOMBARD",
       "point": [112, 19]
     },
+
     {
       "entity": "BLUE-PLT1",
       "task": "MOVE",
@@ -34,6 +35,7 @@
       "entity": "BLUE-PLT1",
       "task": "HOLD"
     },
+
     {
       "entity": "BLUE-PLT2",
       "task": "MOVE",
@@ -47,22 +49,23 @@
     {
       "entity": "BLUE-PLT2",
       "task": "MOVE",
-      "to": [91, 32]
+      "to": [92, 22]
     },
     {
       "entity": "BLUE-PLT2",
       "task": "MOVE",
-      "to": [106, 57]
+      "to": [108, 24]
     },
     {
       "entity": "BLUE-PLT2",
       "task": "MOVE",
-      "to": [114, 74]
+      "to": [118, 24]
     },
     {
       "entity": "BLUE-PLT2",
       "task": "HOLD"
     },
+
     {
       "entity": "BLUE-PLT3",
       "task": "MOVE",
@@ -86,7 +89,7 @@
     {
       "entity": "BLUE-PLT3",
       "task": "MOVE",
-      "to": [116, 82]
+      "to": [114, 74]
     },
     {
       "entity": "BLUE-PLT3",
