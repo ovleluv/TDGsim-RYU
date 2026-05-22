@@ -4,12 +4,6 @@
 #include <vector>
 #include <string>
 
-struct PointHash {
-    std::size_t operator()(const Point& p) const noexcept {
-        return (static_cast<std::size_t>(p.x) << 32) ^ static_cast<std::size_t>(p.y);
-    }
-};
-
 struct PlatoonManeuverPlan {
     bool success = false;
     Point referenceStart{0, 0};
@@ -35,4 +29,8 @@ PlatoonManeuverPlan BuildPlatoonManeuverPlan(
 bool RebuildPlatoonWayPointPlan(
     PlatoonManeuverPlan& plan,
     std::size_t wayPointIndex);
+
+bool ReplanPlatoonMembers(
+    PlatoonManeuverPlan& plan,
+    const std::vector<int>& memberIdsToReplan);
 

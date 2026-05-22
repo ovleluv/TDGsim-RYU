@@ -52,6 +52,7 @@ bool Environment::ExtTransFn(const std::string& inPort, const std::any& anyMessa
         // 엔티티정보 등록
         initEntities.clear();
         entities.clear();
+        entityIdsByPosition_.clear();
         for (const auto& src : s.entities) {
             Entity e{};
             e.name      = src.name;
@@ -68,6 +69,7 @@ bool Environment::ExtTransFn(const std::string& inPort, const std::any& anyMessa
             const int assignedId = RegisterEntityIdByName(e.name);
             e.id = assignedId;
             initEntities[assignedId] = e;
+            AddEntityToPositionIndex(assignedId, e.position);
             entities[assignedId] = std::move(e);
         }
 
@@ -96,6 +98,28 @@ float Environment::TimeAdvanceFn() {
     return -1;
 }
 
+void Environment::AddEntityToPositionIndex(int id, Point p) {
+    if (!InBounds(p)) return;
+
+    auto& ids = entityIdsByPosition_[p];
+    if (std::find(ids.begin(), ids.end(), id) == ids.end()) {
+        ids.push_back(id);
+    }
+}
+
+void Environment::RemoveEntityFromPositionIndex(int id, Point p) {
+    if (!InBounds(p)) return;
+
+    auto it = entityIdsByPosition_.find(p);
+    if (it == entityIdsByPosition_.end()) return;
+
+    auto& ids = it->second;
+    ids.erase(std::remove(ids.begin(), ids.end(), id), ids.end());
+    if (ids.empty()) {
+        entityIdsByPosition_.erase(it);
+    }
+}
+
 EnvMoveResponse Environment::RequestMoveEntity(int id,Point p){
     if (!InBounds(p)) return EnvMoveResponse::OutOfBounds;
 
@@ -106,7 +130,14 @@ EnvMoveResponse Environment::RequestMoveEntity(int id,Point p){
         return EnvMoveResponse::InvalidTerrain;
     }
 
+    const Point oldPosition = it->second.position;
+    if (oldPosition == p) {
+        return EnvMoveResponse::Accepted;
+    }
+
+    RemoveEntityFromPositionIndex(id, oldPosition);
     it->second.position = p;
+    AddEntityToPositionIndex(id, p);
 
     return EnvMoveResponse::Accepted;
 }
@@ -115,8 +146,8 @@ EnvKillResponse Environment::RequestKillEntity(int id) {
     auto it = entities.find(id);
     if (it == entities.end()) return EnvKillResponse::NotFound;
 
-    Point p = QueryEntityPosById(id);
-    nameToId.erase(entities[id].name);
+    RemoveEntityFromPositionIndex(id, it->second.position);
+    nameToId.erase(it->second.name);
     entities.erase(it);
     return EnvKillResponse::Accepted;
 }

@@ -47,6 +47,10 @@ bool Maneuver::ExtTransFn(const std::string& inPort, const std::any& anyMessage)
         const Order& ord = it->second;
 
         if(ord.task == TaskType::MOVE){ //이동명령
+            if (GetCurState() == "MOVE" && curSpeed > 0.0f && nextPos == ord.to) {
+                t_mnv = std::max(0.0f, nextTime - this->engine->GetCurrentTime());
+                return true;
+            }
             this->nextPos = ord.to;
             this->curSpeed = config::inf.walking_speed_cps; // TODO:지형에 의존적으로 적용시킬것
             // LogSimulation(this->engine->GetCurrentTime(),this->GetName(),"RECEIVE_ORDER",

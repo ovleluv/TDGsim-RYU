@@ -21,6 +21,25 @@ namespace {
         return static_cast<int>(std::ceil(
             static_cast<float>(aliveCount) * kMemberGoalReachRatio));
     }
+
+    bool OrdersEqual(const Order& lhs, const Order& rhs) {
+        return lhs.task == rhs.task &&
+               lhs.hasDestination == rhs.hasDestination &&
+               lhs.to == rhs.to;
+    }
+
+    bool PlatoonOrdersEqual(const PlatoonOrd& lhs, const PlatoonOrd& rhs) {
+        if (lhs.orders.size() != rhs.orders.size()) {
+            return false;
+        }
+        for (const auto& [memberId, lhsOrder] : lhs.orders) {
+            auto it = rhs.orders.find(memberId);
+            if (it == rhs.orders.end() || !OrdersEqual(lhsOrder, it->second)) {
+                return false;
+            }
+        }
+        return true;
+    }
 }
 
 void PlatoonLeader::ResetHoldPlan(const Order& ord) {
@@ -42,6 +61,38 @@ void PlatoonLeader::ClearMoveProgressTracking() {
     lastGoalNotReachedLogTime_ = -1.0f;
     moveRetryCount_ = 0;
     lastMovePositions_.clear();
+    lastMemberMoveProgressTime_.clear();
+    stalledMemberIds_.clear();
+}
+
+void PlatoonLeader::ClearHoldOrderCache() {
+    lastHoldOrder_.reset();
+}
+
+void PlatoonLeader::ClearMoveOrderCache() {
+    lastMoveOrder_.reset();
+}
+
+bool PlatoonLeader::EmitHoldOrderIfChanged(const PlatoonOrd& order) {
+    if (lastHoldOrder_.has_value() && PlatoonOrdersEqual(lastHoldOrder_.value(), order)) {
+        return false;
+    }
+
+    lastHoldOrder_ = order;
+    std::any anyOrder = order;
+    this->AddOutputEvent("PlatoonOrd", anyOrder);
+    return true;
+}
+
+bool PlatoonLeader::EmitMoveOrderIfChanged(const PlatoonOrd& order) {
+    if (lastMoveOrder_.has_value() && PlatoonOrdersEqual(lastMoveOrder_.value(), order)) {
+        return false;
+    }
+
+    lastMoveOrder_ = order;
+    std::any anyOrder = order;
+    this->AddOutputEvent("PlatoonOrd", anyOrder);
+    return true;
 }
 
 void PlatoonLeader::ResetMoveProgressTracking(Environment& environment) {
@@ -56,6 +107,7 @@ void PlatoonLeader::ResetMoveProgressTracking(Environment& environment) {
             continue;
         }
         lastMovePositions_[memberId] = environment.QueryEntityPosById(memberId);
+        lastMemberMoveProgressTime_[memberId] = now;
     }
 }
 
@@ -65,8 +117,11 @@ bool PlatoonLeader::RefreshMoveProgress(Environment& environment) {
     }
 
     bool progressed = false;
+    const float now = this->engine->GetCurrentTime();
     for (int memberId : plan_.orderedMemberIds) {
         if (!environment.QueryEntityById(memberId)) {
+            lastMovePositions_.erase(memberId);
+            lastMemberMoveProgressTime_.erase(memberId);
             continue;
         }
 
@@ -74,14 +129,58 @@ bool PlatoonLeader::RefreshMoveProgress(Environment& environment) {
         auto it = lastMovePositions_.find(memberId);
         if (it == lastMovePositions_.end() || it->second != currentPos) {
             lastMovePositions_[memberId] = currentPos;
+            lastMemberMoveProgressTime_[memberId] = now;
             progressed = true;
+        } else if (lastMemberMoveProgressTime_.find(memberId) == lastMemberMoveProgressTime_.end()) {
+            lastMemberMoveProgressTime_[memberId] = now;
         }
     }
 
     if (progressed) {
-        lastMoveProgressTime_ = this->engine->GetCurrentTime();
+        lastMoveProgressTime_ = now;
     }
     return progressed;
+}
+
+std::vector<int> PlatoonLeader::CollectStalledMoveMembers(
+    Environment& environment,
+    bool includeAllUnreached) const {
+    std::vector<int> result;
+    if (currentTask_ != TaskType::MOVE) {
+        return result;
+    }
+
+    const float now = this->engine->GetCurrentTime();
+    for (int memberId : plan_.orderedMemberIds) {
+        if (!environment.QueryEntityById(memberId)) {
+            continue;
+        }
+
+        auto goalIt = plan_.memberGoalPositions.find(memberId);
+        if (goalIt == plan_.memberGoalPositions.end()) {
+            result.push_back(memberId);
+            continue;
+        }
+
+        Point currentPos = environment.QueryEntityPosById(memberId);
+        if (ManhattanDistance(currentPos, goalIt->second) <= kMemberGoalReachRadius) {
+            continue;
+        }
+
+        if (includeAllUnreached) {
+            result.push_back(memberId);
+            continue;
+        }
+
+        auto progressIt = lastMemberMoveProgressTime_.find(memberId);
+        const float lastProgressTime = (progressIt == lastMemberMoveProgressTime_.end())
+            ? activeOrderStartTime_
+            : progressIt->second;
+        if (lastProgressTime >= 0.0f && now - lastProgressTime >= kMoveStallTimeout) {
+            result.push_back(memberId);
+        }
+    }
+    return result;
 }
 
 bool PlatoonLeader::IsMoveTimedOut(Environment& environment) {
@@ -95,12 +194,10 @@ bool PlatoonLeader::IsMoveTimedOut(Environment& environment) {
     const float activeElapsed = (activeOrderStartTime_ >= 0.0f)
         ? now - activeOrderStartTime_
         : 0.0f;
-    const float idleElapsed = (lastMoveProgressTime_ >= 0.0f)
-        ? now - lastMoveProgressTime_
-        : 0.0f;
-
-    const bool stalled = idleElapsed >= kMoveStallTimeout;
     const bool expired = activeElapsed >= kMoveOrderTimeout;
+    stalledMemberIds_ = CollectStalledMoveMembers(environment, expired);
+
+    const bool stalled = !stalledMemberIds_.empty();
     if (!stalled && !expired) {
         return false;
     }
@@ -109,7 +206,7 @@ bool PlatoonLeader::IsMoveTimedOut(Environment& environment) {
                   "MOVE_TIMEOUT",
                   "reason=", stalled ? "stalled" : "expired",
                   " elapsed=", activeElapsed,
-                  " idle=", idleElapsed,
+                  " stalledMembers=", stalledMemberIds_.size(),
                   " pending=", pendingOrders_.size());
     return true;
 }
@@ -140,26 +237,33 @@ bool PlatoonLeader::TryReplanActiveMove(Environment& environment) {
         return false;
     }
 
-    PlatoonManeuverPlan replanned = BuildPlatoonManeuverPlan(memberIds_, activeOrder.to);
-    if (!replanned.success) {
+    std::vector<int> membersToReplan = stalledMemberIds_;
+    if (membersToReplan.empty()) {
+        membersToReplan = CollectStalledMoveMembers(environment, true);
+    }
+    if (membersToReplan.empty()) {
+        membersToReplan = memberIds_;
+    }
+
+    if (!ReplanPlatoonMembers(plan_, membersToReplan)) {
         LogSimulation(now, this->GetNameWithId(),
                       "MOVE_TIMEOUT_ADVANCE",
-                      "reason=replan_failed",
+                      "reason=partial_replan_failed",
                       " replans=", moveRetryCount_,
                       " to=", activeOrder.to.x, ",", activeOrder.to.y,
-                      " failure=", replanned.failureReason,
+                      " failure=", plan_.failureReason,
+                      " members=", membersToReplan.size(),
                       " pending=", pendingOrders_.size());
         return false;
     }
 
-    plan_ = replanned;
     ++moveRetryCount_;
     ResetMoveProgressTracking(environment);
     LogSimulation(now, this->GetNameWithId(),
                   "MOVE_REPLAN",
                   "attempt=", moveRetryCount_, "/", kMaxMoveReplans,
                   " to=", activeOrder.to.x, ",", activeOrder.to.y,
-                  " members=", plan_.orderedMemberIds.size(),
+                  " members=", membersToReplan.size(),
                   " pending=", pendingOrders_.size());
     return true;
 }
@@ -285,6 +389,8 @@ bool PlatoonLeader::ActivateNextOrder(Environment& environment) {
             currentTask_ = TaskType::MOVE;
             activeOrder_ = ord;
             moveRetryCount_ = 0;
+            ClearHoldOrderCache();
+            ClearMoveOrderCache();
             ResetMoveProgressTracking(environment);
             LogSimulation(this->engine->GetCurrentTime(), this->GetNameWithId(),
                           "ACTIVATE_ORDER", "task=MOVE to=", ord.to.x, ",", ord.to.y);
@@ -295,6 +401,7 @@ bool PlatoonLeader::ActivateNextOrder(Environment& environment) {
             currentTask_ = TaskType::HOLD;
             activeOrder_ = ord;
             ClearMoveProgressTracking();
+            ClearMoveOrderCache();
             ResetHoldPlan(ord);
             LogSimulation(this->engine->GetCurrentTime(), this->GetNameWithId(),
                           "ACTIVATE_ORDER", "task=HOLD");
@@ -305,6 +412,7 @@ bool PlatoonLeader::ActivateNextOrder(Environment& environment) {
     activeOrder_.reset();
     currentTask_ = TaskType::HOLD;
     ClearMoveProgressTracking();
+    ClearMoveOrderCache();
     Order idle;
     idle.task = TaskType::HOLD;
     idle.hasDestination = false;
@@ -369,6 +477,8 @@ bool PlatoonLeader::ExtTransFn(const std::string& inPort, const std::any& anyMes
         }
         activeOrder_.reset();
         ClearMoveProgressTracking();
+        ClearHoldOrderCache();
+        ClearMoveOrderCache();
         plan_ = PlatoonManeuverPlan{};
         plan_.orderedMemberIds = memberIds_;
         plan_.success = true;
@@ -383,8 +493,36 @@ bool PlatoonLeader::ExtTransFn(const std::string& inPort, const std::any& anyMes
     } else if (inPort == "SoldierRep") {
         SoldierRep message;
         if (!TryCastMessage(anyMessage, message, "PlatoonLeader::ExtTransFn.SoldierRep")) return false;
-        this->SetCurState("DECIDE");
-        this->t_dec = 0.0f;
+        bool shouldDecide = !message.enemyDetected && currentTask_ != TaskType::MOVE;
+        if (!message.enemyDetected && currentTask_ == TaskType::MOVE && EnvReady()) {
+            Environment& environment = *env;
+            const bool isPlannedMoveMember =
+                std::find(plan_.orderedMemberIds.begin(),
+                          plan_.orderedMemberIds.end(),
+                          message.entityId) != plan_.orderedMemberIds.end();
+            if (isPlannedMoveMember && environment.QueryEntityById(message.entityId)) {
+                const Point currentPos = environment.QueryEntityPosById(message.entityId);
+                auto lastPosIt = lastMovePositions_.find(message.entityId);
+                if (lastPosIt == lastMovePositions_.end()) {
+                    lastMovePositions_[message.entityId] = currentPos;
+                    if (lastMemberMoveProgressTime_.find(message.entityId) ==
+                        lastMemberMoveProgressTime_.end()) {
+                        lastMemberMoveProgressTime_[message.entityId] =
+                            this->engine->GetCurrentTime();
+                    }
+                } else if (lastPosIt->second != currentPos) {
+                    const float now = this->engine->GetCurrentTime();
+                    lastPosIt->second = currentPos;
+                    lastMemberMoveProgressTime_[message.entityId] = now;
+                    lastMoveProgressTime_ = now;
+                    shouldDecide = true;
+                }
+            }
+        }
+        if (shouldDecide) {
+            this->SetCurState("DECIDE");
+            this->t_dec = 0.0f;
+        }
     } else if (inPort == "FireFinished"){
         this->SetCurState("DECIDE");
         this->t_dec = 0.0f;
@@ -439,13 +577,26 @@ bool PlatoonLeader::OutputFn() {
             plan_.memberGoalPositions.erase(memberId);
             plan_.memberPaths.erase(memberId);
             plan_.memberPathIndices.erase(memberId);
+            lastMovePositions_.erase(memberId);
+            lastMemberMoveProgressTime_.erase(memberId);
         }
+        stalledMemberIds_.erase(
+            std::remove_if(
+                stalledMemberIds_.begin(),
+                stalledMemberIds_.end(),
+                [&](int id) {
+                    return std::find(missing.begin(), missing.end(), id) != missing.end();
+                }),
+            stalledMemberIds_.end());
 
         if (plan_.orderedMemberIds.empty()) {
             plan_.memberStartPositions.clear();
             plan_.memberGoalPositions.clear();
             plan_.memberPaths.clear();
             plan_.memberPathIndices.clear();
+            lastMovePositions_.clear();
+            lastMemberMoveProgressTime_.clear();
+            stalledMemberIds_.clear();
             plan_.success = true;
             plan_.failureReason.clear();
         }
@@ -479,8 +630,8 @@ bool PlatoonLeader::OutputFn() {
             order.orders.emplace(memberId, holdOrder);
         }
 
-        std::any anyOrder = order;
-        this->AddOutputEvent("PlatoonOrd", anyOrder);
+        ClearMoveOrderCache();
+        EmitHoldOrderIfChanged(order);
         return true;
     }
 
@@ -494,8 +645,8 @@ bool PlatoonLeader::OutputFn() {
             order.orders.emplace(memberId, holdOrder);
         }
 
-        std::any anyOrder = order;
-        this->AddOutputEvent("PlatoonOrd", anyOrder);
+        ClearMoveOrderCache();
+        EmitHoldOrderIfChanged(order);
         return true;
     }
 
@@ -618,8 +769,8 @@ bool PlatoonLeader::OutputFn() {
             order.orders.emplace(memberId, memberOrder);
         }
 
-        std::any anyOrder = order;
-        this->AddOutputEvent("PlatoonOrd", anyOrder);
+        ClearHoldOrderCache();
+        EmitMoveOrderIfChanged(order);
         return true;
     }
 

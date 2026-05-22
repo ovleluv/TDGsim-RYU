@@ -16,7 +16,11 @@ private:
     std::unordered_map<int, Entity> initEntities; // entity Id -> entity instance (at initialization)
     std::unordered_map<int, Entity> entities; // entity Id -> entity instance
     std::unordered_map<std::string, int> nameToId; // name -> id
+    std::unordered_map<Point, std::vector<int>, PointHash> entityIdsByPosition_;
     int nextId = 1;
+
+    void AddEntityToPositionIndex(int id, Point p);
+    void RemoveEntityFromPositionIndex(int id, Point p);
 public:
     Environment(Engine* engine);
 
@@ -82,16 +86,10 @@ public:
         if (it == entities.end()) return {-1,-1};
         return it->second.position;
     }
-    // O(# of entities), no dict for position -> ids
     std::vector<int> QueryEntityIdsAt(Point p) const {
-        std::vector<int> result;
-        if (!InBounds(p)) return result;
-        for (const auto& kv : entities) {
-            if (kv.second.position == p) {
-                result.push_back(kv.first);
-            }
-        }
-        return result;
+        if (!InBounds(p)) return {};
+        auto it = entityIdsByPosition_.find(p);
+        return (it == entityIdsByPosition_.end()) ? std::vector<int>{} : it->second;
     }
     int QueryEntityIdByName(const std::string& name) const {
         auto it = nameToId.find(name);

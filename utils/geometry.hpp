@@ -1,6 +1,8 @@
 #pragma once
 #include <vector>
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 
 struct Point { int x; int y;};
 inline bool operator==(const Point& a, const Point& b) {
@@ -9,6 +11,13 @@ inline bool operator==(const Point& a, const Point& b) {
 inline bool operator!=(const Point& a, const Point& b) {
     return !(a == b);
 }
+struct PointHash {
+    std::size_t operator()(const Point& p) const noexcept {
+        const auto x = static_cast<std::uint64_t>(static_cast<std::uint32_t>(p.x));
+        const auto y = static_cast<std::uint64_t>(static_cast<std::uint32_t>(p.y));
+        return static_cast<std::size_t>((x << 32) ^ y);
+    }
+};
 struct Rect { 
     int x1, y1; int x2, y2;
     bool Contains(Point p) const noexcept {
