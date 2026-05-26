@@ -26,6 +26,12 @@ private:
     std::optional<PlatoonOrd> lastHoldOrder_;
     std::optional<PlatoonOrd> lastMoveOrder_;
 
+    // PlatoonRep tracking (step 5)
+    int   lastReportedAlive_ = -1;        // -1 = never reported
+    bool  recentEnemyDetected_ = false;
+    float lastReportTime_ = -1.0f;
+    static constexpr float kPlatoonRepInterval = 60.0f;
+
     float t_dec = 0.0f;
 
     bool ActivateNextOrder(Environment& environment);
@@ -41,6 +47,7 @@ private:
     bool EmitHoldOrderIfChanged(const PlatoonOrd& order);
     bool EmitMoveOrderIfChanged(const PlatoonOrd& order);
     void ResetHoldPlan(const Order& ord);
+    void TryEmitPlatoonRep(Environment& environment);
 public:
     PlatoonLeader(Engine* engine, int entityId, std::vector<int> *membersId);
 

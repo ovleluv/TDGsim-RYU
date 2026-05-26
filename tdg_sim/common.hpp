@@ -179,10 +179,12 @@ public:
 // === REPORT ===
 class PlatoonRep{
 public:
-    int entityId; // sender
-    bool succeed;
-    // current Platoon Position
-    // # of dead men
+    int entityId = -1;       // sender (platoon leader id)
+    bool succeed = true;
+    int aliveCount = 0;
+    int casualtyDelta = 0;   // negative if positions repopulated (shouldn't happen)
+    bool enemyEngaged = false;
+    Point centroid{0,0};
 };
 class SoldierRep{
 public:

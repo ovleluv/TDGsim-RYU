@@ -360,6 +360,50 @@ bool PlatoonLeader::IsCurrentGoalReached(Environment& environment) {
     return false;
 }
 
+void PlatoonLeader::TryEmitPlatoonRep(Environment& environment) {
+    int alive = 0;
+    long long sx = 0, sy = 0;
+    for (int memberId : memberIds_) {
+        if (!environment.QueryEntityById(memberId)) continue;
+        ++alive;
+        Point p = environment.QueryEntityPosById(memberId);
+        sx += p.x;
+        sy += p.y;
+    }
+
+    const float now = this->engine->GetCurrentTime();
+    const bool intervalElapsed = (lastReportTime_ < 0.0f) ||
+                                  (now - lastReportTime_ >= kPlatoonRepInterval);
+    int delta = 0;
+    if (lastReportedAlive_ >= 0) {
+        delta = lastReportedAlive_ - alive;
+    }
+    const bool casualtyHappened = delta > 0;
+
+    if (!intervalElapsed && !casualtyHappened) {
+        return;
+    }
+
+    PlatoonRep rep;
+    rep.entityId      = this->entityId;
+    rep.succeed       = true;
+    rep.aliveCount    = alive;
+    rep.casualtyDelta = casualtyHappened ? delta : 0;
+    rep.enemyEngaged  = recentEnemyDetected_;
+    if (alive > 0) {
+        rep.centroid = Point{static_cast<int>(sx / alive), static_cast<int>(sy / alive)};
+    } else {
+        rep.centroid = Point{-1, -1};
+    }
+
+    std::any anyRep = rep;
+    this->AddOutputEvent("PlatoonRep", anyRep);
+
+    lastReportedAlive_   = alive;
+    lastReportTime_      = now;
+    recentEnemyDetected_ = false; // reset window
+}
+
 bool PlatoonLeader::ActivateNextOrder(Environment& environment) {
     while (!pendingOrders_.empty()) {
         Order ord = pendingOrders_.front();
@@ -493,8 +537,14 @@ bool PlatoonLeader::ExtTransFn(const std::string& inPort, const std::any& anyMes
     } else if (inPort == "SoldierRep") {
         SoldierRep message;
         if (!TryCastMessage(anyMessage, message, "PlatoonLeader::ExtTransFn.SoldierRep")) return false;
+        if (message.enemyDetected) {
+            recentEnemyDetected_ = true;
+        }
         bool shouldDecide = !message.enemyDetected && currentTask_ != TaskType::MOVE;
-        if (!message.enemyDetected && currentTask_ == TaskType::MOVE && EnvReady()) {
+        if (message.enemyDetected) {
+            // Enemy contact always warrants a decision so HQ/platoon can react.
+            shouldDecide = true;
+        } else if (currentTask_ == TaskType::MOVE && EnvReady()) {
             Environment& environment = *env;
             const bool isPlannedMoveMember =
                 std::find(plan_.orderedMemberIds.begin(),
@@ -603,6 +653,9 @@ bool PlatoonLeader::OutputFn() {
     };
 
     pruneMissingMembers();
+
+    // Emit PlatoonRep (step 5) on every DECIDE cycle when due
+    TryEmitPlatoonRep(environment);
 
     auto ensureActiveOrder = [&]() -> bool {
         if (!activeOrder_.has_value()) {
