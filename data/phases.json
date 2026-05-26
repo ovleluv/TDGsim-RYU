@@ -1,0 +1,74 @@
+{
+  "initialPhase": "PHASE_ASSAULT",
+  "phases": [
+    {
+      "id": "PHASE_ASSAULT",
+      "orders": [
+        { "entity": "BLUE-ART",  "task": "BOMBARD", "point": [112, 19] },
+
+        { "entity": "BLUE-PLT1", "task": "MOVE", "to": [60, 18] },
+        { "entity": "BLUE-PLT1", "task": "MOVE", "to": [73, 19] },
+        { "entity": "BLUE-PLT1", "task": "MOVE", "to": [92, 19] },
+        { "entity": "BLUE-PLT1", "task": "MOVE", "to": [108, 20] },
+        { "entity": "BLUE-PLT1", "task": "MOVE", "to": [116, 20] },
+        { "entity": "BLUE-PLT1", "task": "HOLD" },
+
+        { "entity": "BLUE-PLT2", "task": "MOVE", "to": [60, 21] },
+        { "entity": "BLUE-PLT2", "task": "MOVE", "to": [76, 21] },
+        { "entity": "BLUE-PLT2", "task": "MOVE", "to": [92, 22] },
+        { "entity": "BLUE-PLT2", "task": "MOVE", "to": [108, 24] },
+        { "entity": "BLUE-PLT2", "task": "MOVE", "to": [118, 24] },
+        { "entity": "BLUE-PLT2", "task": "HOLD" },
+
+        { "entity": "BLUE-PLT3", "task": "MOVE", "to": [58, 23] },
+        { "entity": "BLUE-PLT3", "task": "MOVE", "to": [70, 23] },
+        { "entity": "BLUE-PLT3", "task": "MOVE", "to": [86, 35] },
+        { "entity": "BLUE-PLT3", "task": "MOVE", "to": [101, 60] },
+        { "entity": "BLUE-PLT3", "task": "MOVE", "to": [114, 74] },
+        { "entity": "BLUE-PLT3", "task": "HOLD" }
+      ],
+      "transitions": [
+        {
+          "to": "PHASE_REGROUP",
+          "when": {
+            "type": "casualties_pct_geq",
+            "entity": "BLUE-PLT3",
+            "value": 0.4
+          }
+        },
+        {
+          "to": "PHASE_FALLBACK",
+          "when": {
+            "type": "time_geq",
+            "value": 3500
+          }
+        }
+      ]
+    },
+    {
+      "id": "PHASE_REGROUP",
+      "orders": [
+        { "entity": "BLUE-PLT3", "task": "MOVE", "to": [86, 35] },
+        { "entity": "BLUE-PLT3", "task": "HOLD" }
+      ],
+      "transitions": [
+        {
+          "to": "PHASE_FALLBACK",
+          "when": {
+            "type": "time_geq",
+            "value": 3500
+          }
+        }
+      ]
+    },
+    {
+      "id": "PHASE_FALLBACK",
+      "orders": [
+        { "entity": "BLUE-PLT1", "task": "HOLD" },
+        { "entity": "BLUE-PLT2", "task": "HOLD" },
+        { "entity": "BLUE-PLT3", "task": "HOLD" }
+      ],
+      "transitions": []
+    }
+  ]
+}

@@ -40,6 +40,87 @@ Point ParsePoint(const json& node) noexcept {
         static_cast<int>(node[1].get<double>())
     };
 }
+
+void ParseCondition(const json& node, Condition& out) {
+    if (!node.is_object()) { out.type = "always"; out.raw = "always"; return; }
+    out.type   = node.value("type",   std::string{"always"});
+    out.entity = node.value("entity", std::string{});
+    out.value  = node.value("value",  0.0);
+    if (node.contains("children") && node["children"].is_array()) {
+        for (const auto& c : node["children"]) {
+            Condition child;
+            ParseCondition(c, child);
+            out.children.push_back(std::move(child));
+        }
+    }
+    std::ostringstream oss;
+    oss << out.type;
+    if (!out.entity.empty()) oss << "(" << out.entity << ")";
+    if (out.type == "all" || out.type == "any") {
+        oss << "[" << out.children.size() << " children]";
+    } else if (out.type != "always" && out.type != "enemy_detected") {
+        oss << ">=" << out.value;
+    }
+    out.raw = oss.str();
+}
+
+bool ParseOrdersInto(const json& ordersArr, SideType sideFilter, CompanyOrd& out) {
+    if (!ordersArr.is_array()) return false;
+    Environment* envPtr = EnvReady() ? env : nullptr;
+    if (!envPtr) return false;
+
+    auto queryEntityId = [&](const std::string& name) {
+        return envPtr->QueryEntityIdByName(name);
+    };
+    for (const auto& entry : ordersArr) {
+        if (!entry.is_object()) continue;
+        auto unitIt = entry.find("entity");
+        auto taskIt = entry.find("task");
+        if (unitIt == entry.end() || !unitIt->is_string()) continue;
+        if (taskIt == entry.end() || !taskIt->is_string()) continue;
+
+        const std::string unitName = unitIt->get<std::string>();
+        std::string resolvedName = unitName;
+        int entityId = queryEntityId(unitName);
+        bool usedLeaderFallback = false;
+        if (entityId < 0) {
+            const std::string lowerName = ToLower(unitName);
+            if (lowerName.rfind("-leader") == std::string::npos) {
+                resolvedName = unitName + "-LEADER";
+                entityId = queryEntityId(resolvedName);
+                if (entityId < 0) {
+                    resolvedName = unitName + "-leader";
+                    entityId = queryEntityId(resolvedName);
+                }
+                usedLeaderFallback = entityId >= 0;
+            }
+        }
+        if (entityId < 0) continue;
+
+        const Entity* entity = envPtr->QueryEntityById(entityId);
+        if (!entity) {
+            if (!usedLeaderFallback) continue;
+            const std::string nameLower = ToLower(resolvedName);
+            const std::string sidePrefix =
+                (sideFilter == SideType::BLUE) ? "blue-" : "red-";
+            if (nameLower.rfind(sidePrefix, 0) != 0) continue;
+        } else if (entity->side != sideFilter) {
+            continue;
+        }
+
+        Order order{};
+        order.task = ParseTaskType(taskIt->get<std::string>());
+        const json* pointNode = nullptr;
+        if (auto p = entry.find("point"); p != entry.end()) pointNode = &*p;
+        else if (auto t = entry.find("to"); t != entry.end()) pointNode = &*t;
+        if (pointNode && pointNode->is_array()) {
+            order.to = ParsePoint(*pointNode);
+            order.hasDestination = true;
+        }
+        out.orders[entityId].push_back(order);
+    }
+    return true;
+}
 }
 
 namespace data_loader {
@@ -247,5 +328,54 @@ bool LoadOrderFromFile(std::string_view bmlPath, SideType sideFilter, CompanyOrd
     }
     return true;
 }
+} // namespace data_loader
 
+namespace data_loader {
+bool LoadPhasePlanFromFile(std::string_view phasesPath, SideType sideFilter, PhasePlan& out) {
+    out = PhasePlan{};
+
+    std::ifstream input{std::string(phasesPath)};
+    if (!input) return false;
+
+    json root;
+    try {
+        input >> root;
+    } catch (...) {
+        return false;
+    }
+
+    out.initialPhase = root.value("initialPhase", std::string{});
+
+    if (!root.contains("phases") || !root["phases"].is_array()) return false;
+
+    for (const auto& phaseNode : root["phases"]) {
+        if (!phaseNode.is_object()) continue;
+        Phase p;
+        p.id = phaseNode.value("id", std::string{});
+        if (p.id.empty()) continue;
+
+        if (phaseNode.contains("orders")) {
+            ParseOrdersInto(phaseNode["orders"], sideFilter, p.orders);
+        }
+
+        if (phaseNode.contains("transitions") && phaseNode["transitions"].is_array()) {
+            for (const auto& tNode : phaseNode["transitions"]) {
+                if (!tNode.is_object()) continue;
+                PhaseTransition tr;
+                tr.to = tNode.value("to", std::string{});
+                if (tr.to.empty()) continue;
+                if (tNode.contains("when")) {
+                    ParseCondition(tNode["when"], tr.when);
+                }
+                p.transitions.push_back(std::move(tr));
+            }
+        }
+        out.phases.push_back(std::move(p));
+    }
+
+    if (out.initialPhase.empty() && !out.phases.empty()) {
+        out.initialPhase = out.phases.front().id;
+    }
+    return !out.phases.empty();
+}
 } // namespace data_loader

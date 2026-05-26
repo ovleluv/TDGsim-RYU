@@ -15,4 +15,5 @@ namespace data_loader {
     bool LoadScenarioFromFile(std::string_view path, Scenario& out);
     bool LoadGoalFromFile(std::string_view path, std::vector<Rect>& out);
     bool LoadOrderFromFile( std::string_view bmlPath, SideType sideFilter, CompanyOrd& out);
+    bool LoadPhasePlanFromFile(std::string_view phasesPath, SideType sideFilter, PhasePlan& out);
 }

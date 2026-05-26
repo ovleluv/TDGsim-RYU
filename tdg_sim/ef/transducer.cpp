@@ -399,7 +399,42 @@ bool Transducer::ExportPhasesJson(int expIndex) {
     }
     json out;
     out["experimentIndex"] = expIndex;
-    out["phases"]          = json::array(); // populated in step 6
+
+    json phases = json::array();
+    if (EnvReady()) {
+        struct Segment {
+            std::string phaseId;
+            float       t0 = 0.0f;
+            std::string triggerReason;
+            std::string triggeringEventId;
+        };
+        std::vector<Segment> segments;
+        for (const auto& ev : env->GetEvents()) {
+            if (ev.tag != "PHASE_TRANSITION") continue;
+            if (ev.actorSide != SideType::BLUE) continue; // primary planner only
+            Segment s;
+            auto pit = ev.attrs.find("phase");
+            if (pit != ev.attrs.end()) s.phaseId = pit->second;
+            auto rit = ev.attrs.find("triggerReason");
+            if (rit != ev.attrs.end()) s.triggerReason = rit->second;
+            s.t0 = ev.t0;
+            s.triggeringEventId = ev.id;
+            segments.push_back(std::move(s));
+        }
+
+        const float endT = this->engine->GetSimulationEndTime();
+        for (std::size_t i = 0; i < segments.size(); ++i) {
+            json je;
+            je["phaseId"]            = segments[i].phaseId;
+            je["t0"]                 = segments[i].t0;
+            je["t1"]                 = (i + 1 < segments.size()) ? segments[i + 1].t0 : endT;
+            je["triggerReason"]      = segments[i].triggerReason;
+            je["triggeringEventId"]  = segments[i].triggeringEventId;
+            phases.push_back(std::move(je));
+        }
+    }
+    out["phases"] = std::move(phases);
+
     const std::string filename = BuildExpFilePath(path::PHASES_LOG_PREFIX, expIndex, ".json");
     std::ofstream ofs(filename);
     if (!ofs.is_open()) return false;

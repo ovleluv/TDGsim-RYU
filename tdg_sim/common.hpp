@@ -169,7 +169,37 @@ public:
 
 class CompanyOrd{
 public:
-    std::unordered_map<int,std::vector<Order>> orders; 
+    std::unordered_map<int,std::vector<Order>> orders;
+};
+
+// ============================ Phases (step 6) ============================
+// Simple condition DSL: each Condition is a node, "all"/"any" have children.
+struct Condition {
+    std::string type;                  // "time_geq","casualties_geq","casualties_pct_geq","enemy_detected","all","any","always"
+    std::string entity;                // platoon name prefix (e.g., "BLUE-PLT3") for entity-scoped conditions
+    double      value = 0.0;
+    std::vector<Condition> children;   // for "all"/"any"
+    std::string raw;                   // serialized form for logging/triggerReason
+};
+
+struct PhaseTransition {
+    std::string to;
+    Condition   when;
+};
+
+struct Phase {
+    std::string id;
+    CompanyOrd  orders;                // pre-resolved orders (entity-id keyed)
+    std::vector<PhaseTransition> transitions;
+};
+
+struct PhasePlan {
+    std::string         initialPhase;
+    std::vector<Phase>  phases;
+    Phase* FindPhase(const std::string& id) {
+        for (auto& p : phases) if (p.id == id) return &p;
+        return nullptr;
+    }
 };
 class PlatoonOrd{
 public:
