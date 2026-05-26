@@ -143,3 +143,27 @@ float Maneuver::TimeAdvanceFn() {
     if (this->GetCurState() == "DEAD") return TIME_INF;
     return -1;
 }
+
+void Maneuver::OnStateEnter(const std::string& newState) {
+    if (!EnvReady() || this->info == nullptr) return;
+    if (newState == "MOVE") {
+        std::unordered_map<std::string,std::string> attrs;
+        char fromBuf[32], toBuf[32];
+        std::snprintf(fromBuf, sizeof(fromBuf), "%d,%d", this->info->position.x, this->info->position.y);
+        std::snprintf(toBuf,   sizeof(toBuf),   "%d,%d", this->nextPos.x, this->nextPos.y);
+        attrs["from"] = fromBuf;
+        attrs["to"]   = toBuf;
+        activeMoveEventId_ = env->BeginEvent(this->info->id, this->info->name,
+                                              this->info->side, "MOVE", std::move(attrs));
+    } else if (newState == "DEAD") {
+        env->RecordInstantEvent(this->info->id, this->info->name,
+                                 this->info->side, "KIA");
+    }
+}
+
+void Maneuver::OnStateExit(const std::string& oldState) {
+    if (oldState == "MOVE" && EnvReady() && !activeMoveEventId_.empty()) {
+        env->EndEvent(activeMoveEventId_);
+        activeMoveEventId_.clear();
+    }
+}

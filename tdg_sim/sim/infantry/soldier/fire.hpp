@@ -25,6 +25,8 @@ private:
             rngInit = true;
         }
     }
+    // Timeline event tracking
+    std::string activeEventId_;
 public:
     Fire(Engine* engine, Entity* info);
 
@@ -32,4 +34,7 @@ public:
     bool IntTransFn();
     bool OutputFn();
     float TimeAdvanceFn();
+
+    void OnStateEnter(const std::string& newState) override;
+    void OnStateExit (const std::string& oldState) override;
 };

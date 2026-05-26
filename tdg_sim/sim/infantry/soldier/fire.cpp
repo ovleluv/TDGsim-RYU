@@ -57,6 +57,15 @@ bool Fire::OutputFn(){
         const bool targetAlive = targetEntity != nullptr;
         const bool hit = targetAlive && roll <= config::inf.phit_rifle;
 
+        // Update timeline event with shot result
+        if (EnvReady() && !activeEventId_.empty()) {
+            if (ActionEvent* ev = env->FindEventMutable(activeEventId_)) {
+                ev->attrs["hit"] = hit ? "true" : "false";
+                ev->attrs["targetAlive"] = targetAlive ? "true" : "false";
+                if (targetEntity) ev->attrs["targetName"] = targetEntity->name;
+            }
+        }
+
         if (hit) {
             message.targetId = this->targetId;
             message.targetPoint.push_back(Point{-1, -1});
@@ -78,6 +87,25 @@ bool Fire::OutputFn(){
         return true;
     }
     return true;
+}
+
+void Fire::OnStateEnter(const std::string& newState) {
+    if (newState == "FIRE" && EnvReady() && this->info != nullptr) {
+        std::unordered_map<std::string,std::string> attrs;
+        attrs["targetId"] = std::to_string(this->targetId);
+        if (const Entity* t = env->QueryEntityById(this->targetId)) {
+            attrs["targetName"] = t->name;
+        }
+        activeEventId_ = env->BeginEvent(this->info->id, this->info->name,
+                                          this->info->side, "FIRE", std::move(attrs));
+    }
+}
+
+void Fire::OnStateExit(const std::string& oldState) {
+    if (oldState == "FIRE" && EnvReady() && !activeEventId_.empty()) {
+        env->EndEvent(activeEventId_);
+        activeEventId_.clear();
+    }
 }
 
 bool Fire::IntTransFn(){

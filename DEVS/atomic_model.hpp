@@ -46,6 +46,11 @@ public:
     virtual bool OutputFn() {return false;}
     virtual float TimeAdvanceFn() {return -1;} // return -1 for error - likely no "STATE" defined
 
+    // Hooks fired when SetCurState transitions to a different state.
+    // Not fired on initial state setup (old state == empty) or no-op transitions.
+    virtual void OnStateEnter(const std::string& /*newState*/) {}
+    virtual void OnStateExit (const std::string& /*oldState*/) {}
+
     bool IsAtomic() const override { return true; }
 
 };

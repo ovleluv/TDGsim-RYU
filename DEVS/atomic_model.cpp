@@ -8,7 +8,11 @@ const std::vector<std::string>& AtomicModel::GetStates() const{
     return this->states;
 }
 void AtomicModel::SetCurState(std::string state) {
+    const std::string oldState = this->currentState;
     this->currentState = state;
+    if (oldState.empty() || oldState == this->currentState) return;
+    OnStateExit(oldState);
+    OnStateEnter(this->currentState);
 }
 const std::string& AtomicModel::GetCurState() const {
     return this->currentState;

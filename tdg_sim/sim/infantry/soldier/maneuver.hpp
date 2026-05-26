@@ -27,6 +27,8 @@ private:
             rngInit = true;
         }
     }
+    // Timeline event tracking
+    std::string activeMoveEventId_;
 public:
     Maneuver(Engine* engine, Entity* info);
 
@@ -34,4 +36,7 @@ public:
     bool OutputFn();
     bool IntTransFn();
     float TimeAdvanceFn();
+
+    void OnStateEnter(const std::string& newState) override;
+    void OnStateExit (const std::string& oldState) override;
 };
