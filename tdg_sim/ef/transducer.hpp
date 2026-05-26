@@ -14,6 +14,13 @@ private:
 
     bool ReadResultFromSim(Result& result);
     bool StoreResultCSV(const std::string_view& path, const Result& result);
+
+    // Timeline exports (step 3). Per-experiment files under data/timeline/.
+    bool ExportTimelineJson(int expIndex);
+    bool ExportEngagementsJson(int expIndex);
+    bool ExportPhasesJson(int expIndex);
+    std::string BuildExpFilePath(std::string_view prefix, int expIndex,
+                                  std::string_view ext);
 public:
     Transducer(Engine* engine);
 

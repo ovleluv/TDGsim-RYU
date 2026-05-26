@@ -102,6 +102,9 @@ public:
         return (it != nameToId.end()) ? it->second : -1;
     }
 
+    const std::unordered_map<int, Entity>& GetInitEntities() const noexcept { return initEntities; }
+    const std::unordered_map<int, Entity>& GetEntities()     const noexcept { return entities; }
+
     int RegisterEntityIdByName(const std::string& name);
     EnvMoveResponse RequestMoveEntity(int id, Point p);
     EnvKillResponse RequestKillEntity(int id);
