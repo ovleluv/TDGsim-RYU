@@ -1,5 +1,14 @@
 #include "environment.hpp"
+#include <cstdio>
 Environment* env = nullptr;
+
+namespace {
+std::string FormatEventId(std::uint64_t seq) {
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "e%07llu", static_cast<unsigned long long>(seq));
+    return std::string(buf);
+}
+}
 Environment::Environment(Engine* engine)
     : AtomicModel(engine)
 {
@@ -158,5 +167,50 @@ int Environment::RegisterEntityIdByName(const std::string& name){
 
     int id = nextId++;
     nameToId[name] = id;
+    return id;
+}
+
+// === EventRecorder ===
+std::string Environment::BeginEvent(int actorId, const std::string& actorName,
+                                     SideType actorSide, const std::string& tag,
+                                     std::unordered_map<std::string,std::string> attrs) {
+    ActionEvent ev;
+    ev.id = FormatEventId(this->nextEventSeq_++);
+    ev.t0 = (this->engine != nullptr) ? this->engine->GetCurrentTime() : 0.0f;
+    ev.t1 = -1.0f;
+    ev.dur = 0.0f;
+    ev.actorId = actorId;
+    ev.actorName = actorName;
+    ev.actorSide = actorSide;
+    ev.tag = tag;
+    ev.attrs = std::move(attrs);
+    ev.phaseId = this->currentPhaseId_;
+
+    const std::size_t idx = this->events_.size();
+    this->events_.push_back(std::move(ev));
+    const std::string& assignedId = this->events_[idx].id;
+    this->idToIndex_[assignedId] = idx;
+    return assignedId;
+}
+
+void Environment::EndEvent(const std::string& eventId,
+                            std::unordered_map<std::string,std::string> attrs) {
+    auto it = this->idToIndex_.find(eventId);
+    if (it == this->idToIndex_.end()) return;
+
+    ActionEvent& ev = this->events_[it->second];
+    const float now = (this->engine != nullptr) ? this->engine->GetCurrentTime() : ev.t0;
+    ev.t1 = now;
+    ev.dur = (ev.t1 > ev.t0) ? (ev.t1 - ev.t0) : 0.0f;
+    for (auto& kv : attrs) {
+        ev.attrs[kv.first] = std::move(kv.second);
+    }
+}
+
+std::string Environment::RecordInstantEvent(int actorId, const std::string& actorName,
+                                             SideType actorSide, const std::string& tag,
+                                             std::unordered_map<std::string,std::string> attrs) {
+    std::string id = this->BeginEvent(actorId, actorName, actorSide, tag, std::move(attrs));
+    this->EndEvent(id);
     return id;
 }

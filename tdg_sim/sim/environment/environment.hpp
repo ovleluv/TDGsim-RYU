@@ -21,6 +21,12 @@ private:
 
     void AddEntityToPositionIndex(int id, Point p);
     void RemoveEntityFromPositionIndex(int id, Point p);
+
+    // === EventRecorder state ===
+    std::vector<ActionEvent> events_;
+    std::unordered_map<std::string, std::size_t> idToIndex_;
+    std::uint64_t nextEventSeq_ = 1;
+    std::string currentPhaseId_;
 public:
     Environment(Engine* engine);
 
@@ -99,6 +105,28 @@ public:
     int RegisterEntityIdByName(const std::string& name);
     EnvMoveResponse RequestMoveEntity(int id, Point p);
     EnvKillResponse RequestKillEntity(int id);
+
+    // === EventRecorder API ===
+    // BeginEvent opens an ongoing action; pair with EndEvent(id) when it finishes.
+    // RecordInstantEvent records a point-in-time event (duration=0).
+    std::string BeginEvent(int actorId, const std::string& actorName, SideType actorSide,
+                           const std::string& tag,
+                           std::unordered_map<std::string,std::string> attrs = {});
+    void        EndEvent(const std::string& eventId,
+                          std::unordered_map<std::string,std::string> attrs = {});
+    std::string RecordInstantEvent(int actorId, const std::string& actorName, SideType actorSide,
+                                    const std::string& tag,
+                                    std::unordered_map<std::string,std::string> attrs = {});
+
+    void SetCurrentPhaseId(const std::string& p) { currentPhaseId_ = p; }
+    const std::string& GetCurrentPhaseId() const noexcept { return currentPhaseId_; }
+
+    const std::vector<ActionEvent>& GetEvents() const noexcept { return events_; }
+    std::vector<ActionEvent>&       GetEventsMutable() noexcept { return events_; }
+    ActionEvent* FindEventMutable(const std::string& eventId) {
+        auto it = idToIndex_.find(eventId);
+        return (it == idToIndex_.end()) ? nullptr : &events_[it->second];
+    }
 
     // - parameter = force type filter(default : no filter) / returns = (blue count, red count) 
     std::pair<int,int> QueryInitialEntityCounts(

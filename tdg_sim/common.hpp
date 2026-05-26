@@ -130,6 +130,23 @@ enum class EnvKillResponse {
     NotFound        // id 없음
 };
 
+// ============================ Timeline ============================
+// Action/event record collected by Environment's EventRecorder.
+// t1<0 means the event is still ongoing.
+struct ActionEvent {
+    std::string id;
+    float t0 = 0.0f;
+    float t1 = -1.0f;
+    float dur = 0.0f;
+    int actorId = -1;
+    std::string actorName;
+    SideType actorSide = SideType::BLUE;
+    std::string tag;          // "FIRE","MOVE","DETECT","KIA","ORDER_ACTIVATE","PHASE_TRANSITION", ...
+    std::unordered_map<std::string, std::string> attrs;
+    std::string engagementId; // filled by EngagementTracker
+    std::string phaseId;      // current phase at t0
+};
+
 // ============================ Messages ============================
 
 // EF
