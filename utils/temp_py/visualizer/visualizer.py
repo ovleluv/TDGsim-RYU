@@ -690,6 +690,494 @@ def auto_find_log(script_dir: str) -> Optional[str]:
     return None
 
 
+# ---------------------- Timeline JSON loading (step 7) ----------------------
+@dataclass
+class TimelineData:
+    spec: dict
+    initial_positions: Dict[str, Tuple[int, int]]
+    info: Dict[str, UnitInfo]
+    step_events: List[Tuple[float, List[dict]]]  # time-grouped events for replay
+    raw_events: List[dict]                       # original ActionEvent records
+    engagements: List[dict]
+    phases: List[dict]                           # phase segments {phaseId,t0,t1,...}
+    end_time: float
+
+
+_SIDE_TO_STR = {"BLUE": "BLUE", "RED": "RED"}
+
+
+def _parse_coord_attr(s: str) -> Optional[Tuple[int, int]]:
+    if not s:
+        return None
+    try:
+        x, y = s.split(",")
+        return (int(x), int(y))
+    except Exception:
+        return None
+
+
+def load_timeline_data(
+    timeline_path: str,
+    engagements_path: Optional[str] = None,
+    phases_path: Optional[str] = None,
+) -> TimelineData:
+    with open(timeline_path, "r", encoding="utf-8") as fh:
+        tl = json.load(fh)
+
+    meta = tl.get("meta", {})
+    width = int(meta.get("width", 0))
+    height = int(meta.get("height", 0))
+    end_time = float(meta.get("endTime", 0.0))
+
+    spec = {
+        "w": width,
+        "h": height,
+        "patches": [],            # terrain not in timeline.json; could be loaded from scenario.json separately
+        "target_areas": tl.get("goal_areas", []),
+        "units": [],
+    }
+    info: Dict[str, UnitInfo] = {}
+    initial_positions: Dict[str, Tuple[int, int]] = {}
+    for ent in tl.get("initial_entities", []):
+        name = ent.get("name")
+        if not name:
+            continue
+        pos = ent.get("position", [0, 0])
+        x = int(pos[0]) if isinstance(pos, list) and len(pos) >= 2 else 0
+        y = int(pos[1]) if isinstance(pos, list) and len(pos) >= 2 else 0
+        initial_positions[name] = (x, y)
+        info[name] = UnitInfo(
+            side=str(ent.get("side", "NEUTRAL")).upper(),
+            unit_type=str(ent.get("forceType", "")),
+        )
+        spec["units"].append({"uid": name, "side": info[name].side,
+                              "type": info[name].unit_type, "x": x, "y": y})
+
+    raw_events = tl.get("events", [])
+
+    # Time-grouped step events (for stepping playback semantics).
+    grouped: Dict[float, List[dict]] = defaultdict(list)
+    for ev in raw_events:
+        tag = ev.get("tag", "")
+        actor = ev.get("actor") or ""
+        t0 = float(ev.get("t0", 0.0))
+        t1 = float(ev.get("t1", t0))
+        attrs = ev.get("attrs", {}) or {}
+
+        if tag == "MOVE":
+            to_pos = _parse_coord_attr(attrs.get("to", ""))
+            if to_pos is not None:
+                # snap effect at end of cell move
+                grouped[t1].append({"type": "move", "unit": actor, "pos": to_pos})
+        elif tag == "FIRE":
+            target_name = attrs.get("targetName")
+            grouped[t0].append({"type": "shoot", "unit": actor,
+                                "target": target_name,
+                                "hit": attrs.get("hit") == "true"})
+        elif tag == "KIA":
+            grouped[t0].append({"type": "death", "unit": actor})
+
+    step_events = sorted(grouped.items(), key=lambda kv: kv[0])
+
+    engagements: List[dict] = []
+    if engagements_path and os.path.isfile(engagements_path):
+        try:
+            with open(engagements_path, "r", encoding="utf-8") as fh:
+                eng = json.load(fh)
+            engagements = eng.get("engagements", []) or []
+        except Exception:
+            engagements = []
+
+    phases: List[dict] = []
+    if phases_path and os.path.isfile(phases_path):
+        try:
+            with open(phases_path, "r", encoding="utf-8") as fh:
+                ph = json.load(fh)
+            phases = ph.get("phases", []) or []
+        except Exception:
+            phases = []
+
+    return TimelineData(
+        spec=spec,
+        initial_positions=initial_positions,
+        info=info,
+        step_events=step_events,
+        raw_events=raw_events,
+        engagements=engagements,
+        phases=phases,
+        end_time=end_time if end_time > 0 else (step_events[-1][0] if step_events else 1.0),
+    )
+
+
+def merge_terrain_from_scenario(td: TimelineData, scenario_path: Optional[str]) -> None:
+    """Optional: pull terrain rectangles from scenario.json so the map shows colours."""
+    if not scenario_path or not os.path.isfile(scenario_path):
+        return
+    try:
+        with open(scenario_path, "r", encoding="utf-8") as fh:
+            scen = json.load(fh)
+    except Exception:
+        return
+    patches = []
+    for area in scen.get("terrain", []):
+        if not isinstance(area, dict):
+            continue
+        patches.append({
+            "kind": area.get("kind", "plain"),
+            "x1": int(area.get("x1", 0)),
+            "y1": int(area.get("y1", 0)),
+            "x2": int(area.get("x2", area.get("x1", 0))),
+            "y2": int(area.get("y2", area.get("y1", 0))),
+        })
+    if patches:
+        td.spec["patches"] = patches
+
+
+def _resolve_timeline_arg(arg: str, repo_root: str) -> Optional[str]:
+    """Accept either a file path or an experiment index (e.g., 12 -> timeline_exp012.json)."""
+    if not arg:
+        return None
+    if os.path.isabs(arg) and os.path.isfile(arg):
+        return arg
+    if os.path.isfile(arg):
+        return os.path.abspath(arg)
+    if arg.isdigit():
+        candidate = os.path.join(repo_root, "data", "timeline",
+                                  f"timeline_exp{int(arg):03d}.json")
+        if os.path.isfile(candidate):
+            return candidate
+    candidate = os.path.join(repo_root, arg)
+    if os.path.isfile(candidate):
+        return candidate
+    return None
+
+
+def _sibling_path(timeline_path: str, prefix_new: str, prefix_old: str = "timeline_exp") -> str:
+    """Given .../timeline_expNNN.json return .../{prefix_new}NNN.json."""
+    base = os.path.basename(timeline_path)
+    folder = os.path.dirname(timeline_path)
+    if base.startswith(prefix_old):
+        tail = base[len(prefix_old):]
+        return os.path.join(folder, prefix_new + tail)
+    return ""
+
+
+# ---------------------- Timeline-mode playback (step 7) ----------------------
+PANEL_RIGHT_W = 260
+HUD_TOP_H = 36
+SCRUB_BAR_H = 88
+EVENT_WINDOW_BEFORE = 30.0  # seconds shown in the event panel before cursor
+EVENT_WINDOW_AFTER = 5.0
+
+
+def _color_for_phase(phase_id: str) -> Tuple[int, int, int]:
+    if not phase_id:
+        return (180, 180, 180)
+    h = abs(hash(phase_id)) % 360
+    # convert HSV-ish to RGB (cheap)
+    import colorsys
+    r, g, b = colorsys.hsv_to_rgb(h / 360.0, 0.45, 0.85)
+    return (int(r * 255), int(g * 255), int(b * 255))
+
+
+def _format_event_line(ev: dict) -> str:
+    actor = ev.get("actor", "?")
+    tag = ev.get("tag", "?")
+    attrs = ev.get("attrs", {}) or {}
+    if tag == "FIRE":
+        tgt = attrs.get("targetName", "?")
+        hit = "HIT" if attrs.get("hit") == "true" else "miss"
+        return f"FIRE {actor} -> {tgt} [{hit}]"
+    if tag == "MOVE":
+        return f"MOVE {actor} {attrs.get('from','?')}->{attrs.get('to','?')}"
+    if tag == "KIA":
+        return f"KIA {actor}"
+    if tag == "PHASE_TRANSITION":
+        return f"PHASE -> {attrs.get('phase','?')} ({attrs.get('triggerReason','')})"
+    return f"{tag} {actor}"
+
+
+def _replay_state_to_time(state: SimulationState,
+                          step_events: List[Tuple[float, List[dict]]],
+                          target_time: float) -> int:
+    """Reset state and replay step events up to (and including) target_time. Returns step index."""
+    state.reset()
+    idx = 0
+    for t, evts in step_events:
+        if t > target_time:
+            break
+        for e in evts:
+            if e["type"] == "move":
+                state.set_position(e["unit"], e["pos"])
+            elif e["type"] == "death":
+                state.remove_unit(e["unit"])
+            # shoot doesn't mutate state
+        idx += 1
+    return idx
+
+
+def playback_timeline(
+    td: TimelineData,
+    *,
+    cell_size: int,
+    fps: int,
+    step_delay_ms: int,
+) -> None:
+    width, height = td.spec["w"], td.spec["h"]
+    patches = td.spec.get("patches", [])
+    target_areas = td.spec.get("target_areas", [])
+
+    map_w = width * cell_size
+    map_h = height * cell_size
+    win_w = map_w + PANEL_RIGHT_W
+    win_h = HUD_TOP_H + map_h + SCRUB_BAR_H
+
+    pygame.init()
+    pygame.display.set_caption("TDGsim Timeline Visualizer")
+    screen = pygame.display.set_mode((win_w, win_h))
+    font = pygame.font.SysFont(None, max(14, cell_size // 2))
+    hud_font = pygame.font.SysFont(None, 22)
+    small_font = pygame.font.SysFont(None, 18)
+    clock = pygame.time.Clock()
+
+    state = SimulationState(
+        unit_info=dict(td.info),
+        positions=dict(td.initial_positions),
+        initial_positions=dict(td.initial_positions),
+    )
+
+    map_surface = pygame.Surface((map_w, map_h))
+
+    current_index = 0
+    current_time = 0.0
+    current_shots: List[ShotOverlay] = []
+    last_event_text = "Ready"
+    paused = True  # start paused so user can scrub immediately
+    accumulator = 0.0
+
+    SHOT_HOLD_MS = 350
+    shot_expire_at = 0
+    scrub_dragging = False
+
+    def time_to_scrub_x(t: float) -> int:
+        if td.end_time <= 0:
+            return 0
+        return int((t / td.end_time) * (win_w - 16)) + 8
+
+    def scrub_x_to_time(x: int) -> float:
+        x = max(8, min(win_w - 8, x))
+        return ((x - 8) / max(1, (win_w - 16))) * td.end_time
+
+    def active_phase_for(t: float) -> Optional[dict]:
+        # phases are sorted by t0
+        prev = None
+        for ph in td.phases:
+            if ph.get("t0", 0.0) <= t:
+                prev = ph
+            else:
+                break
+        return prev
+
+    def seek(target_time: float) -> None:
+        nonlocal current_index, current_time, current_shots, last_event_text
+        idx = _replay_state_to_time(state, td.step_events, target_time)
+        current_index = idx
+        current_time = target_time
+        current_shots = []
+        last_event_text = f"seek to t={target_time:.1f}"
+
+    running = True
+    step_once = False
+
+    while running:
+        dt = clock.tick(fps)
+        accumulator += dt
+
+        for ev in pygame.event.get():
+            if ev.type == pygame.QUIT:
+                running = False
+            elif ev.type == pygame.KEYDOWN:
+                if ev.key in (pygame.K_ESCAPE, pygame.K_q):
+                    running = False
+                elif ev.key == pygame.K_SPACE:
+                    paused = not paused
+                elif ev.key in (pygame.K_RIGHT, pygame.K_RETURN):
+                    paused = True
+                    step_once = True
+                elif ev.key == pygame.K_r:
+                    seek(0.0)
+                    paused = True
+                    accumulator = 0.0
+                    step_once = False
+                elif ev.key == pygame.K_LEFTBRACKET:
+                    # jump to previous engagement t0
+                    targets = [e.get("t0", 0.0) for e in td.engagements if e.get("t0", 0.0) < current_time - 0.5]
+                    if targets:
+                        seek(max(targets))
+                        paused = True
+                elif ev.key == pygame.K_RIGHTBRACKET:
+                    targets = [e.get("t0", 0.0) for e in td.engagements if e.get("t0", 0.0) > current_time + 0.5]
+                    if targets:
+                        seek(min(targets))
+                        paused = True
+                elif ev.key == pygame.K_COMMA:
+                    targets = [p.get("t0", 0.0) for p in td.phases if p.get("t0", 0.0) < current_time - 0.5]
+                    if targets:
+                        seek(max(targets))
+                        paused = True
+                elif ev.key == pygame.K_PERIOD:
+                    targets = [p.get("t0", 0.0) for p in td.phases if p.get("t0", 0.0) > current_time + 0.5]
+                    if targets:
+                        seek(min(targets))
+                        paused = True
+            elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+                mx, my = ev.pos
+                scrub_top = HUD_TOP_H + map_h
+                if scrub_top <= my <= scrub_top + SCRUB_BAR_H:
+                    scrub_dragging = True
+                    seek(scrub_x_to_time(mx))
+                    paused = True
+            elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
+                scrub_dragging = False
+            elif ev.type == pygame.MOUSEMOTION and scrub_dragging:
+                seek(scrub_x_to_time(ev.pos[0]))
+
+        if current_index >= len(td.step_events):
+            paused = True
+
+        should_step = False
+        if not paused and current_index < len(td.step_events) and accumulator >= step_delay_ms:
+            should_step = True
+        elif step_once and current_index < len(td.step_events):
+            should_step = True
+
+        if should_step:
+            if not paused:
+                accumulator %= step_delay_ms
+            else:
+                step_once = False
+                accumulator = 0.0
+
+            step_time, evts = td.step_events[current_index]
+            current_shots = []
+            shot_expire_at = pygame.time.get_ticks() + SHOT_HOLD_MS
+
+            texts = []
+            for e in evts:
+                t = e["type"]
+                if t == "move":
+                    state.set_position(e["unit"], e["pos"])
+                elif t == "shoot":
+                    shooter = e["unit"]
+                    shooter_pos = state.lookup(shooter)
+                    target_pos = state.lookup(e.get("target")) if e.get("target") else None
+                    if target_pos is None:
+                        target_pos = shooter_pos
+                    if shooter_pos and target_pos:
+                        side = state.ensure_info(shooter).side
+                        colour = COLORS["blue"] if side == "BLUE" else (COLORS["red"] if side == "RED" else COLORS["urban"])
+                        current_shots.append(ShotOverlay(source=shooter_pos, target=target_pos, colour=colour))
+                elif t == "death":
+                    state.remove_unit(e["unit"])
+                texts.append(describe_event(e))
+
+            current_time = step_time
+            last_event_text = "; ".join(texts) if texts else f"{step_time:.2f}: (no change)"
+            current_index += 1
+
+        if current_shots and pygame.time.get_ticks() > shot_expire_at:
+            current_shots = []
+
+        # ---- Render ----
+        screen.fill((30, 30, 35))
+
+        # Map surface
+        draw_background(map_surface, width, height, cell_size, patches, target_areas, None)
+        draw_units(map_surface, state, cell_size, font)
+        draw_shots(map_surface, current_shots, cell_size)
+        screen.blit(map_surface, (0, HUD_TOP_H))
+
+        # Top phase HUD
+        ph = active_phase_for(current_time)
+        phase_id = ph.get("phaseId", "(none)") if ph else "(none)"
+        trigger = ph.get("triggerReason", "") if ph else ""
+        hud_bg = _color_for_phase(phase_id) if ph else (50, 50, 50)
+        pygame.draw.rect(screen, hud_bg, (0, 0, win_w, HUD_TOP_H))
+        hud_text = f"PHASE: {phase_id}   ({trigger})   t={current_time:.1f} / {td.end_time:.0f}s"
+        screen.blit(hud_font.render(hud_text, True, (20, 20, 20)), (10, 8))
+
+        # Right panel: event list around current_time
+        panel_x = map_w
+        pygame.draw.rect(screen, (45, 45, 50), (panel_x, HUD_TOP_H, PANEL_RIGHT_W, map_h))
+        title = hud_font.render("Events", True, (220, 220, 220))
+        screen.blit(title, (panel_x + 10, HUD_TOP_H + 6))
+        y = HUD_TOP_H + 34
+        max_y = HUD_TOP_H + map_h - 6
+        tmin = current_time - EVENT_WINDOW_BEFORE
+        tmax = current_time + EVENT_WINDOW_AFTER
+        listed = 0
+        for ev in td.raw_events:
+            t0 = float(ev.get("t0", 0.0))
+            if t0 < tmin:
+                continue
+            if t0 > tmax:
+                break
+            line = f"[{t0:6.1f}] " + _format_event_line(ev)
+            if len(line) > 38:
+                line = line[:37] + "…"
+            colour = (230, 230, 230)
+            if ev.get("tag") == "PHASE_TRANSITION":
+                colour = (255, 220, 120)
+            elif ev.get("tag") == "KIA":
+                colour = (220, 120, 120)
+            elif ev.get("tag") == "FIRE":
+                colour = (170, 200, 240)
+            screen.blit(small_font.render(line, True, colour), (panel_x + 10, y))
+            y += 18
+            listed += 1
+            if y > max_y:
+                break
+
+        # Bottom scrub bar
+        scrub_top = HUD_TOP_H + map_h
+        pygame.draw.rect(screen, (20, 20, 22), (0, scrub_top, win_w, SCRUB_BAR_H))
+        # axis line
+        pygame.draw.line(screen, (140, 140, 140),
+                          (8, scrub_top + SCRUB_BAR_H // 2),
+                          (win_w - 8, scrub_top + SCRUB_BAR_H // 2), 1)
+        # phase segments
+        for ph in td.phases:
+            x0 = time_to_scrub_x(float(ph.get("t0", 0.0)))
+            x1 = time_to_scrub_x(float(ph.get("t1", ph.get("t0", 0.0))))
+            colour = _color_for_phase(ph.get("phaseId", ""))
+            pygame.draw.rect(screen, colour, (x0, scrub_top + 4, max(2, x1 - x0), 14))
+        # engagement bars
+        for eg in td.engagements:
+            x0 = time_to_scrub_x(float(eg.get("t0", 0.0)))
+            x1 = time_to_scrub_x(float(eg.get("t1", eg.get("t0", 0.0))))
+            pygame.draw.rect(screen, (200, 140, 60), (x0, scrub_top + 24, max(2, x1 - x0), 12))
+        # KIA spikes
+        for ev in td.raw_events:
+            if ev.get("tag") != "KIA":
+                continue
+            x = time_to_scrub_x(float(ev.get("t0", 0.0)))
+            colour = (90, 140, 220) if ev.get("actorSide") == "BLUE" else (220, 90, 90)
+            pygame.draw.line(screen, colour, (x, scrub_top + 42), (x, scrub_top + 52), 1)
+        # playhead
+        x_now = time_to_scrub_x(current_time)
+        pygame.draw.line(screen, (255, 220, 0),
+                          (x_now, scrub_top + 2),
+                          (x_now, scrub_top + SCRUB_BAR_H - 2), 2)
+        # legend / shortcuts
+        legend = "SPACE pause   ← scrub drag   [ ] engagement   , . phase   R reset   ESC quit"
+        screen.blit(small_font.render(legend, True, (180, 180, 180)),
+                     (8, scrub_top + SCRUB_BAR_H - 18))
+
+        pygame.display.flip()
+
+    pygame.quit()
+
+
 def find_repo_root(start_dir: str) -> str:
     cur = os.path.abspath(start_dir)
     while True:
@@ -724,6 +1212,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Replay TDGsim logs on the tactical map.")
     parser.add_argument("--map", help="Path to scenario/map specification JSON.")
     parser.add_argument("--log", help="Simulation log file to replay (path or exp index).")
+    parser.add_argument("--timeline", help="Path or exp index for data/timeline/timeline_expNNN.json. Enables phase HUD, scrub bar, event panel.")
     parser.add_argument("--cell", type=int, default=10, help="Pixel size of each map cell.")
     parser.add_argument("--fps", type=int, default=60, help="Render frames per second.")
     parser.add_argument("--interval", type=int, default=600, help="Milliseconds per simulation step.")
@@ -737,6 +1226,28 @@ def main() -> None:
     map_path = args.map or os.path.join(repo_root, "data", "scenario.json")
     if not os.path.isabs(map_path):
         map_path = os.path.join(repo_root, map_path)
+
+    # --- Timeline mode (step 7) ----------------------------------------------
+    if args.timeline:
+        tl_path = _resolve_timeline_arg(args.timeline, repo_root)
+        if not tl_path:
+            raise FileNotFoundError(f"Timeline file not found: {args.timeline}")
+        eng_path = _sibling_path(tl_path, "engagements_exp")
+        ph_path  = _sibling_path(tl_path, "phases_exp")
+        td = load_timeline_data(tl_path, eng_path or None, ph_path or None)
+        # Pull terrain from scenario.json if available for nicer map colours
+        merge_terrain_from_scenario(td, map_path if os.path.isfile(map_path) else None)
+        if not td.step_events:
+            print("Timeline contains no replayable events.")
+            return
+        playback_timeline(
+            td,
+            cell_size=args.cell,
+            fps=args.fps,
+            step_delay_ms=max(50, args.interval),
+        )
+        return
+    # -------------------------------------------------------------------------
 
     if args.log:
         log_path = resolve_log_path(args.log, repo_root)
