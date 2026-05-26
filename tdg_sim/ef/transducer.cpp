@@ -52,6 +52,9 @@ bool Transducer::OutputFn() {
         if (!this->StoreResultCSV(path::RESULT_CSV, this->result_)) {
             LogError(this->engine->GetCurrentTime(), this->GetName(), "Failed to store result to CSV.");
         }
+        // build engagement summaries and back-fill engagementId in events
+        this->BuildEngagementsAndBackfill();
+
         // timeline / engagements / phases JSON exports
         const int idx = (this->experimentIndex_ > 0) ? this->experimentIndex_ : 1;
         if (!this->ExportTimelineJson(idx)) {
@@ -261,12 +264,130 @@ bool Transducer::ExportEngagementsJson(int expIndex) {
     }
     json out;
     out["experimentIndex"] = expIndex;
-    out["engagements"]     = json::array(); // populated in step 4
+
+    json arr = json::array();
+    for (const auto& eng : this->engagements_) {
+        json je;
+        je["id"]         = eng.id;
+        je["t0"]         = eng.t0;
+        je["t1"]         = eng.t1;
+        je["dur"]        = eng.dur;
+        je["fireCount"]  = eng.fireCount;
+        je["blueKia"]    = eng.blueKia;
+        je["redKia"]     = eng.redKia;
+        je["blueIds"]    = eng.blueIds;
+        je["redIds"]     = eng.redIds;
+        arr.push_back(std::move(je));
+    }
+    out["engagements"] = std::move(arr);
+
     const std::string filename = BuildExpFilePath(path::ENGAGEMENTS_PREFIX, expIndex, ".json");
     std::ofstream ofs(filename);
     if (!ofs.is_open()) return false;
     ofs << out.dump(2);
     return true;
+}
+
+void Transducer::BuildEngagementsAndBackfill() {
+    constexpr float kEngagementGap = 60.0f; // engagement closes after no activity for this many sim seconds
+
+    this->engagements_.clear();
+    if (!EnvReady()) return;
+
+    auto& events = env->GetEventsMutable();
+    if (events.empty()) return;
+
+    // Open engagement indices (into engagements_)
+    std::vector<std::size_t> openIdx;
+    std::uint64_t nextSeq = 1;
+
+    auto closeStale = [&](float now) {
+        openIdx.erase(
+            std::remove_if(openIdx.begin(), openIdx.end(),
+                [&](std::size_t i) { return this->engagements_[i].t1 + kEngagementGap < now; }),
+            openIdx.end());
+    };
+
+    auto pushUnique = [](std::vector<int>& vec, int v) {
+        if (std::find(vec.begin(), vec.end(), v) == vec.end()) vec.push_back(v);
+    };
+
+    for (auto& ev : events) {
+        if (ev.t0 < 0.0f) continue;
+
+        if (ev.tag == "FIRE") {
+            // Resolve target id from attrs
+            int targetId = -1;
+            auto it = ev.attrs.find("targetId");
+            if (it != ev.attrs.end()) {
+                try { targetId = std::stoi(it->second); } catch (...) { targetId = -1; }
+            }
+
+            closeStale(ev.t0);
+
+            // Find an open engagement that involves either the actor or the target
+            std::size_t chosen = static_cast<std::size_t>(-1);
+            for (std::size_t i : openIdx) {
+                const auto& e = this->engagements_[i];
+                const bool actorIn = std::find(e.blueIds.begin(), e.blueIds.end(), ev.actorId) != e.blueIds.end()
+                                   || std::find(e.redIds.begin(),  e.redIds.end(),  ev.actorId) != e.redIds.end();
+                const bool targetIn = (targetId >= 0) && (
+                                       std::find(e.blueIds.begin(), e.blueIds.end(), targetId) != e.blueIds.end()
+                                    || std::find(e.redIds.begin(),  e.redIds.end(),  targetId) != e.redIds.end());
+                if (actorIn || targetIn) { chosen = i; break; }
+            }
+
+            if (chosen == static_cast<std::size_t>(-1)) {
+                EngagementSummary eng;
+                char buf[24];
+                std::snprintf(buf, sizeof(buf), "eng_%07llu", static_cast<unsigned long long>(nextSeq++));
+                eng.id  = buf;
+                eng.t0  = ev.t0;
+                eng.t1  = (ev.t1 > 0.0f) ? ev.t1 : ev.t0;
+                this->engagements_.push_back(std::move(eng));
+                chosen = this->engagements_.size() - 1;
+                openIdx.push_back(chosen);
+            }
+
+            EngagementSummary& eng = this->engagements_[chosen];
+            const float evEnd = (ev.t1 > 0.0f) ? ev.t1 : ev.t0;
+            if (evEnd > eng.t1) eng.t1 = evEnd;
+            eng.fireCount++;
+            if (ev.actorSide == SideType::BLUE) {
+                pushUnique(eng.blueIds, ev.actorId);
+                if (targetId >= 0) pushUnique(eng.redIds, targetId);
+            } else {
+                pushUnique(eng.redIds, ev.actorId);
+                if (targetId >= 0) pushUnique(eng.blueIds, targetId);
+            }
+            ev.engagementId = eng.id;
+        } else if (ev.tag == "KIA") {
+            closeStale(ev.t0);
+            // Attribute KIA to most recent engagement listing this actor
+            for (auto it = openIdx.rbegin(); it != openIdx.rend(); ++it) {
+                EngagementSummary& eng = this->engagements_[*it];
+                bool found = false;
+                if (ev.actorSide == SideType::BLUE) {
+                    if (std::find(eng.blueIds.begin(), eng.blueIds.end(), ev.actorId) != eng.blueIds.end()) {
+                        eng.blueKia++;
+                        ev.engagementId = eng.id;
+                        found = true;
+                    }
+                } else {
+                    if (std::find(eng.redIds.begin(), eng.redIds.end(), ev.actorId) != eng.redIds.end()) {
+                        eng.redKia++;
+                        ev.engagementId = eng.id;
+                        found = true;
+                    }
+                }
+                if (found) break;
+            }
+        }
+    }
+
+    for (auto& e : this->engagements_) {
+        e.dur = (e.t1 > e.t0) ? (e.t1 - e.t0) : 0.0f;
+    }
 }
 
 bool Transducer::ExportPhasesJson(int expIndex) {

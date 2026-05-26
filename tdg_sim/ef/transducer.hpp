@@ -15,6 +15,21 @@ private:
     bool ReadResultFromSim(Result& result);
     bool StoreResultCSV(const std::string_view& path, const Result& result);
 
+    // Engagement aggregation (step 4). Built once and reused by exports.
+    struct EngagementSummary {
+        std::string id;
+        float t0 = 0.0f;
+        float t1 = 0.0f;
+        float dur = 0.0f;
+        int fireCount = 0;
+        int blueKia = 0;
+        int redKia = 0;
+        std::vector<int> blueIds;
+        std::vector<int> redIds;
+    };
+    std::vector<EngagementSummary> engagements_;
+    void BuildEngagementsAndBackfill();
+
     // Timeline exports (step 3). Per-experiment files under data/timeline/.
     bool ExportTimelineJson(int expIndex);
     bool ExportEngagementsJson(int expIndex);
