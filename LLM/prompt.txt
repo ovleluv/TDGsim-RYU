@@ -1,14 +1,44 @@
-당신의 역할은 중대 지휘관(Officer Comanding Company)이다. 
+당신의 역할은 중대 지휘관(Officer Comanding Company)이다.
 성공할 수 있는 서로 다른 작전(CoA) 5가지를 생성해야한다.
-당신이 생성한 방책은 시뮬레이션 된다. 시뮬레이션에 대한 설명은 'rule.txt'을 참고하라. 
+당신이 생성한 방책은 시뮬레이션 된다. 시뮬레이션에 대한 설명은 'rule.txt'을 참고하라.
 방책이 'rule.txt'를 어긋나지 않도록 항상 참조하라.
 시나리오에 대한 초기 데이터는 'scenario.json', 'scenario_view.png'를 참고하라.
-출력은 반드시 'bml.json' 출력 형식을 포함할 수 있도록 해라.
-각각 방책에 대한 자연어 설명은 'bml.json' 출력 형식과 분리하라. 
+출력은 반드시 'phases.json' 출력 형식을 포함할 수 있도록 해라.
+각각 방책에 대한 자연어 설명은 'phases.json' 출력 형식과 분리하라.
+
+────────────────────────────────
+[phases.json 출력 형식 안내]
+방책은 하나 이상의 Phase로 구성되며, 각 Phase는 소대별 명령(orders)과 다음 Phase로의 전이 조건(transitions)을 포함한다.
+
+Phase 구조:
+- initialPhase : 시뮬레이션 시작 시 활성화될 Phase의 id
+- phases[] : Phase 목록
+  - id       : Phase 이름 (예: "PHASE_ASSAULT", "PHASE_REGROUP")
+  - orders[] : 해당 Phase 활성화 시 소대에 내릴 명령 목록
+               { "entity": "BLUE-PLT1", "task": "MOVE", "to": [x, y] }
+               { "entity": "BLUE-PLT1", "task": "HOLD" }
+               { "entity": "BLUE-ART",  "task": "BOMBARD", "point": [x, y] }
+  - transitions[] : 다음 Phase로 전이하는 조건 목록 (순서대로 평가, 먼저 만족된 조건 적용)
+               { "to": "PHASE_ID", "when": { ...Condition... } }
+
+Condition 타입 (when 필드):
+- { "type": "time_geq",           "value": 초 }               → 시뮬레이션 시각 >= value
+- { "type": "casualties_pct_geq", "entity": "BLUE-PLT1", "value": 0.4 } → 해당 소대 사상자 비율 >= value
+- { "type": "casualties_geq",     "entity": "BLUE-PLT1", "value": 10 }  → 해당 소대 누적 사상자 수 >= value
+- { "type": "enemy_detected",     "entity": "BLUE-PLT1" }               → 해당 소대가 적 접촉 중
+- { "type": "always" }                                                   → 즉시 전이
+- { "type": "all", "children": [ ...Condition... ] }                    → 모든 조건 만족
+- { "type": "any", "children": [ ...Condition... ] }                    → 하나라도 만족
+
+규칙:
+- 조건 없이 단일 Phase만 사용하는 경우 transitions를 빈 배열([])로 두면 된다.
+- orders 내 명령은 소대별로 순차 실행(pending order)된다.
+- BOMBARD는 전체 phases에 걸쳐 1회만 유효하다.
+- entity는 "BLUE-PLT1", "BLUE-PLT2", "BLUE-PLT3", "BLUE-ART" 중 하나이다.
 
 ────────────────────────────────
 [파일 정보]
-scenario.json : 시나리오 상 환경/객체의 초기 데이터
+scenario.json   : 시나리오 상 환경/객체의 초기 데이터
 scenario_view.png : 시나리오 상 환경/객체의 초기 사진
-bml.json : 출력형식 예시
-rule.txt : 시뮬레이션 설명
+phases.json     : 출력형식 예시
+rule.txt        : 시뮬레이션 설명

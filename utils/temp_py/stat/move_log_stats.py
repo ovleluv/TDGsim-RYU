@@ -28,6 +28,20 @@ TO_RE = re.compile(r"\bto=(?P<x>-?\d+),(?P<y>-?\d+)")
 GOAL_RE = re.compile(r"\bgoal=\((?P<x>-?\d+),(?P<y>-?\d+)\)")
 MEMBERS_RE = re.compile(r"\bmembers=(?P<members>\d+)")
 
+# ── Phase tracking (step 6) ──────────────────────────────────────────────────
+# Log format (from LogSimulation / hq.cpp):
+#   [1234.567] BLUE-HQ(1) : LOAD_PHASES count=3 initial=PHASE_ASSAULT
+#   [1234.567] BLUE-HQ(1) : PHASE_TRANSITION to=PHASE_REGROUP reason=casualties_pct_geq
+LOAD_PHASES_RE = re.compile(
+    r"\]\s+(?:BLUE|RED)-HQ\([^)]*\)\s+:\s+LOAD_PHASES"
+    r"\s+count=\d+\s+initial=(?P<initial>\S+)"
+)
+PHASE_TRANS_RE = re.compile(
+    r"\[(?P<time>[0-9.]+)\]\s+"
+    r"(?:BLUE|RED)-HQ\([^)]*\)\s+:\s+PHASE_TRANSITION"
+    r"\s+to=(?P<to>\S+)\s+reason=(?P<reason>.*)"
+)
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -94,6 +108,7 @@ def analyze_logs(log_dir: Path) -> dict:
     if not files:
         raise FileNotFoundError(f"No log_simulation_exp*.txt files found in {log_dir}")
 
+    # ── MOVE tracking ────────────────────────────────────────────────────────
     stats = defaultdict(Counter)
     activate_targets = defaultdict(Counter)
     reached_targets = defaultdict(Counter)
@@ -106,10 +121,48 @@ def analyze_logs(log_dir: Path) -> dict:
     pending_by_run = defaultdict(dict)
     platoon_size_hint = defaultdict(int)
 
+    # ── Phase tracking ───────────────────────────────────────────────────────
+    # phase_mode_runs  : set of run names that loaded phases.json successfully
+    # initial_phases   : run_name -> initial phase id
+    # transitions_by_run : run_name -> [(time, from_phase, to_phase, reason), ...]
+    #   - "initial" activations (reason=="initial") are excluded from this list
+    #     because they represent plan load, not a condition-triggered transition.
+    phase_mode_runs: set[str] = set()
+    initial_phases: dict[str, str] = {}
+    transitions_by_run: dict[str, list] = defaultdict(list)
+    # track current phase within each run to derive "from" phase
+    _cur_phase: dict[str, str] = {}
+
     for path in files:
         run_name = path.name
         with path.open("r", encoding="utf-8", errors="replace") as f:
             for line in f:
+
+                # ── Phase: LOAD_PHASES ────────────────────────────────────
+                lp_match = LOAD_PHASES_RE.search(line)
+                if lp_match:
+                    phase_mode_runs.add(run_name)
+                    initial_phases[run_name] = lp_match.group("initial")
+                    _cur_phase[run_name] = lp_match.group("initial")
+                    continue
+
+                # ── Phase: PHASE_TRANSITION ───────────────────────────────
+                pt_match = PHASE_TRANS_RE.search(line)
+                if pt_match:
+                    phase_mode_runs.add(run_name)  # safety: mark if somehow missed
+                    reason = pt_match.group("reason").strip()
+                    to_phase = pt_match.group("to")
+                    time = float(pt_match.group("time"))
+                    from_phase = _cur_phase.get(run_name, "")
+                    # skip the initial activation (plan load, not a real condition trigger)
+                    if reason != "initial":
+                        transitions_by_run[run_name].append(
+                            (time, from_phase, to_phase, reason)
+                        )
+                    _cur_phase[run_name] = to_phase
+                    continue
+
+                # ── MOVE: DEAD ───────────────────────────────────────────
                 dead_match = SOLDIER_DEAD_RE.search(line)
                 if dead_match:
                     leader = dead_match.group("leader")
@@ -118,6 +171,7 @@ def analyze_logs(log_dir: Path) -> dict:
                     run_events[leader][run_name]["DEAD"] += 1
                     continue
 
+                # ── MOVE: MOVE_GOAL_PENDING ──────────────────────────────
                 pending_match = PENDING_RE.search(line)
                 if pending_match:
                     leader = pending_match.group("leader")
@@ -128,6 +182,7 @@ def analyze_logs(log_dir: Path) -> dict:
                         platoon_size_hint[leader] = max(platoon_size_hint[leader], alive)
                     continue
 
+                # ── MOVE: leader events ──────────────────────────────────
                 event_match = LEADER_EVENT_RE.search(line)
                 if not event_match:
                     continue
@@ -187,6 +242,10 @@ def analyze_logs(log_dir: Path) -> dict:
         "deaths_by_run": deaths_by_run,
         "pending_by_run": pending_by_run,
         "platoon_size_hint": platoon_size_hint,
+        # phase data
+        "phase_mode_runs": phase_mode_runs,
+        "initial_phases": initial_phases,
+        "transitions_by_run": transitions_by_run,
     }
 
 
@@ -335,6 +394,126 @@ def build_failure_trace(
     return traces
 
 
+def build_phase_section(
+    files: list[Path],
+    phase_mode_runs: set[str],
+    initial_phases: dict[str, str],
+    transitions_by_run: dict[str, list],
+) -> list[str]:
+    """Phase 전이 통계 섹션을 빌드한다."""
+    lines: list[str] = []
+    run_count = len(files)
+    phase_run_count = len(phase_mode_runs)
+
+    lines.append("[Phase 전이 요약]")
+    lines.append("")
+
+    # Phase 모드 사용 여부
+    lines.append(f"Phase 모드 실행: {phase_run_count}/{run_count}회")
+    if phase_run_count == 0:
+        lines.append("  (phases.json 미사용 — bml.json fallback 모드로 실행됨)")
+        lines.append("")
+        return lines
+
+    # 초기 Phase 분포
+    init_counter: Counter = Counter(initial_phases.values())
+    init_str = ", ".join(f"{k}: {v}회" for k, v in init_counter.most_common())
+    lines.append(f"초기 Phase 분포: {init_str}")
+
+    # 전이 없이 종료된 실행 (phase 모드 실행 중 조건 트리거가 한 번도 없었던 경우)
+    no_trans_runs = sum(
+        1 for run in phase_mode_runs if not transitions_by_run.get(run)
+    )
+    lines.append(
+        f"전이 없이 종료된 실행: {no_trans_runs}/{phase_run_count}회"
+        + (" (초기 Phase만 유지)" if no_trans_runs > 0 else "")
+    )
+    lines.append("")
+
+    # 전이가 하나라도 있는 경우 상세 분석
+    # 전이 경로 분포: 각 run의 전이 시퀀스를 문자열화
+    path_counter: Counter = Counter()
+    for run in phase_mode_runs:
+        trans_list = transitions_by_run.get(run, [])
+        if not trans_list:
+            initial = initial_phases.get(run, "?")
+            path_counter[initial] += 1
+        else:
+            # e.g. "PHASE_ASSAULT → PHASE_REGROUP → PHASE_FALLBACK"
+            phases_in_order = [initial_phases.get(run, "?")]
+            for _, _, to_phase, _ in trans_list:
+                phases_in_order.append(to_phase)
+            path_counter[" → ".join(phases_in_order)] += 1
+
+    lines.append("전이 경로 분포:")
+    for path_str, count in path_counter.most_common():
+        lines.append(f"  {path_str}: {count}회")
+    lines.append("")
+
+    # 전이 타입별 상세 통계 (from→to 기준)
+    # Collect all (from, to) pairs with their times and reasons
+    trans_pair_times:   dict[tuple, list[float]] = defaultdict(list)
+    trans_pair_reasons: dict[tuple, Counter]     = defaultdict(Counter)
+    trans_pair_runs:    dict[tuple, set[str]]    = defaultdict(set)
+
+    for run, trans_list in transitions_by_run.items():
+        for time, from_phase, to_phase, reason in trans_list:
+            key = (from_phase, to_phase)
+            trans_pair_times[key].append(time)
+            trans_pair_reasons[key][reason] += 1
+            trans_pair_runs[key].add(run)
+
+    if trans_pair_times:
+        lines.append("전이별 상세 통계:")
+        lines.append("")
+        for key in sorted(trans_pair_times.keys()):
+            from_p, to_p = key
+            times = trans_pair_times[key]
+            runs_fired = len(trans_pair_runs[key])
+            total_fires = len(times)
+            avg_t = sum(times) / len(times)
+            min_t = min(times)
+            max_t = max(times)
+            reasons = trans_pair_reasons[key]
+            top_reason = reasons.most_common(1)[0][0] if reasons else "?"
+
+            arrow = f"{from_p} → {to_p}" if from_p else f"(?) → {to_p}"
+            lines.append(f"  [{arrow}]")
+            lines.append(f"    전이 발생 실행: {runs_fired}/{phase_run_count}회")
+            lines.append(f"    전이 총 횟수:   {total_fires}회")
+            lines.append(
+                f"    전이 시각:      평균 {avg_t:.1f}초  "
+                f"(최소 {min_t:.1f}초 / 최대 {max_t:.1f}초)"
+            )
+            reason_str = ", ".join(
+                f"{r}: {c}회" for r, c in reasons.most_common(3)
+            )
+            lines.append(f"    트리거 사유:    {reason_str}")
+
+            # 빠른/늦은 전이 분포 (사분위 힌트)
+            if len(times) >= 4:
+                sorted_t = sorted(times)
+                q1 = sorted_t[len(sorted_t) // 4]
+                q3 = sorted_t[3 * len(sorted_t) // 4]
+                lines.append(f"    시각 분포 Q1/Q3: {q1:.1f}초 / {q3:.1f}초")
+
+            lines.append("")
+    else:
+        lines.append("  (조건 트리거로 인한 전이 없음)")
+        lines.append("")
+
+    # Phase 모드이지만 전이 없이 전 실행이 끝난 경우 피드백 힌트
+    if no_trans_runs == phase_run_count:
+        lines.append(
+            "  ※ 모든 실행에서 전이 조건이 발동되지 않았습니다. "
+            "transitions 조건값(value)이 너무 높거나 시뮬레이션 종료 시각이 "
+            "time_geq 조건보다 이른지 확인하세요."
+        )
+        lines.append("")
+
+    return lines
+
+
 def build_report(analysis: dict) -> str:
     files = analysis["files"]
     leaders = analysis["leaders"]
@@ -354,6 +533,19 @@ def build_report(analysis: dict) -> str:
     lines: list[str] = []
     lines.append(f"분석 대상 로그: {run_count}개")
     lines.append(f"범위: {files[0].name} ~ {files[-1].name}")
+    lines.append("")
+
+    # ── Phase 전이 요약 (신규) ────────────────────────────────────────────────
+    lines.extend(
+        build_phase_section(
+            files,
+            analysis["phase_mode_runs"],
+            analysis["initial_phases"],
+            analysis["transitions_by_run"],
+        )
+    )
+
+    lines.append("────────────────────────────────")
     lines.append("")
     lines.append("[MOVE 상태 요약]")
     lines.append("")
