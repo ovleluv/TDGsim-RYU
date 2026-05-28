@@ -115,3 +115,129 @@ BOMBARD:
 목표:
 - Obj1/Obj2/Obj3 점령 점수의 총합을 최대화하는 방책(CoA) 작성
 - Obj3는 0.5 가중치로 가장 중요하며, Obj1과 Obj2는 각각 0.25 가중치이다.
+
+────────────────────────────────
+[분기점 / 액션 타이밍 / Duration 계측]
+
+이 절은 step1~step8 변경으로 추가된, 시간 축 기반 액션 계측·분기 계획 체계에 대한 규칙이다.
+모든 시점 값은 시뮬레이션 시각(초) 기준이며, BLUE HQ가 단일 phase tag holder 역할을 한다.
+
+[액션 이벤트(ActionEvent) 구조]
+- 모든 액션은 Environment의 EventRecorder를 통해 ActionEvent로 기록된다.
+- 필드: id, t0(시작), t1(종료, 진행 중이면 -1), dur, actorId, actorName, actorSide,
+        tag, attrs, engagementId(역참조), phaseId(t0 시점 활성 phase).
+- 진행성 액션은 BeginEvent → EndEvent 쌍으로 기록되고, 점이벤트는 RecordInstantEvent(dur=0)로 기록된다.
+- 현재 발행되는 tag: FIRE, MOVE, KIA, PHASE_TRANSITION
+  · DETECT는 빈도가 매우 높아 타임라인을 흐리므로 현 단계에서는 의도적으로 기록하지 않는다.
+
+[상태 전이 훅 (OnStateEnter / OnStateExit)]
+- AtomicModel::SetCurState는 OnStateEnter(newState) / OnStateExit(oldState) 가상 훅을 호출한다.
+  최초 셋업(oldState 비어 있음)과 동일 상태 자기 전이는 건너뛴다.
+- Fire는 WAIT→FIRE 진입 시 BeginEvent("FIRE", attrs={targetId, targetName}),
+  FIRE→WAIT 이탈 시 EndEvent. OutputFn에서 사격 결과(hit/targetAlive/targetName)를
+  해당 이벤트의 attrs에 back-fill 한다.
+- Maneuver는 WAIT→MOVE 진입 시 BeginEvent("MOVE", attrs={from, to}),
+  MOVE→WAIT 이탈 시 EndEvent. DEAD 진입 시 RecordInstantEvent("KIA").
+
+[엔게이지먼트(Engagement) 집계]
+- Transducer가 시뮬레이션 종료 시점에 FIRE/KIA 이벤트를 시간 클러스터링하여 EngagementSummary를 만든다.
+- 클러스터링 규칙: 마지막 활동 후 60초 동안 활동이 없으면 해당 engagement는 종료된다.
+- FIRE는 actor 또는 target 중 어느 하나라도 이미 포함된 open engagement에 합류하고,
+  없으면 새 engagement를 생성한다. KIA는 해당 dead actor가 참가자인 가장 최근 open engagement에 귀속된다.
+- 각 FIRE/KIA ActionEvent에는 소속 engagementId가 back-fill 되어 timeline.json에서 역참조 가능하다.
+- EngagementSummary 필드: id, t0, t1, dur, fireCount, blueKia, redKia, blueIds[], redIds[].
+
+[PlatoonRep 강화 / 주기 보고]
+- PlatoonRep 필드: entityId, succeed, aliveCount, casualtyDelta, enemyEngaged, centroid.
+- PlatoonLeader는 SoldierRep 수신 시 enemyDetected 여부를 recentEnemyDetected_ 윈도우에 캐싱하며,
+  적 접촉 시(enemyDetected=true) 항상 DECIDE 상태로 전환한다.
+- PlatoonLeader는 DECIDE 사이클마다 TryEmitPlatoonRep를 호출하여,
+  · 마지막 보고 이후 kPlatoonRepInterval(60초)이 경과했거나
+  · 직전 보고 대비 사상자가 발생한(delta > 0) 경우
+  PlatoonRep을 발행한다. 발행 후 enemy 윈도우는 초기화된다.
+- HQ는 이 보고를 leaderId 키로 latestPlatoonReps_에 캐싱하고 phase 조건 평가에 사용한다.
+
+[Phase 정의 / 조건 DSL / phases.json]
+- BML(bml.json) 대신 phase 기반 분기 계획을 사용한다. HQ는 Start 수신 시 LoadPhasePlanFromFile을 먼저 시도하고,
+  초기 phase에 본 진영(side) 적용 가능한 order가 있으면 phase 모드를 활성화한다(phaseModeActive_=true).
+  그렇지 않으면 기존 bml.json + bml_npc.json fallback 흐름을 사용한다.
+- Phase 모드에서 HQ는 WAIT 상태일 때 kPhaseCheckInterval(30초) 마다 깨어나 전이 조건을 평가하고,
+  PlatoonRep 도착 시에도 즉시 DECIDE로 전환하여 반응형으로 평가한다.
+- Phase 활성화 시 BLUE HQ는 env->SetCurrentPhaseId(phaseId)로 전역 phase tag를 갱신하고,
+  RecordInstantEvent("PHASE_TRANSITION", attrs={phase, triggerReason})를 기록한다.
+  같은 시점에 해당 phase의 orders가 pendingOrders_에 적재되어 OutputFn에서 CompanyOrd로 송신된다.
+- Condition DSL 타입:
+  · "always"                                     : 항상 참
+  · "time_geq"      / value=초                   : 현재 시각 >= value
+  · "casualties_geq" / entity, value             : 해당 entity prefix 누적 사상자 수 >= value
+  · "casualties_pct_geq" / entity, value=비율    : 사상자 비율 >= value (0.0~1.0)
+  · "enemy_detected" / entity=PLT prefix         : 해당 소대 리더의 최신 PlatoonRep.enemyEngaged == true
+  · "all" / children[]                           : 자식 전부 참
+  · "any" / children[]                           : 자식 중 하나라도 참
+  entity는 "BLUE-PLT3" 같은 prefix이며, "BLUE-PLT3-LEADER"가 자동 연결된다.
+- phases.json 스키마(요약):
+  { "initialPhase": "PHASE_ASSAULT",
+    "phases": [
+      { "id": "...", "orders": [ {entity, task, to/point} ... ],
+        "transitions": [ { "to": "...", "when": { ...Condition... } } ] }
+    ] }
+- 현재 샘플 phases.json: PHASE_ASSAULT → (PLT3 사상자 40% 이상) PHASE_REGROUP / (t>=3500) PHASE_FALLBACK.
+
+────────────────────────────────
+[타임라인 / 엔게이지먼트 / Phase Export]
+
+Transducer는 시뮬레이션 종료 시 실험 인덱스 NNN별로 다음 4종(목표) 파일군을 data/timeline/ 아래에 export 한다.
+현 단계에서 export 되는 파일은 다음과 같다:
+
+data/timeline/timeline_expNNN.json
+   - meta: experimentIndex, seed, endTime, width, height
+   - initial_entities: 초기 엔티티 목록 (id, name, side, forceType, position)
+   - goal_areas: 목표 구역 사각형과 가중치
+   - events: 모든 ActionEvent 배열
+       (id, t0, t1, dur, actorId, actor, actorSide, tag, engagementId, phaseId, attrs)
+
+data/timeline/engagements_expNNN.json
+   - experimentIndex
+   - engagements: EngagementSummary 배열
+       (id, t0, t1, dur, fireCount, blueKia, redKia, blueIds[], redIds[])
+
+data/timeline/phases_expNNN.json
+   - PHASE_TRANSITION 이벤트 기반 phase 구간/트리거 사유 로그
+   - 각 phase는 트리거 조건식의 직렬화 문자열과 triggeringEvents 리스트를 포함하여 기록된다.
+
+unit_state_track.jsonl (예정 슬롯)
+   - 소대/병사 상태 트랙. 현 단계에서는 timeline.json events에 통합되어 있으며, 향후 분리 export 슬롯이다.
+
+경로 상수:
+- path::TIMELINE_DIR        = "data/timeline"
+- path::TIMELINE_PREFIX     = "timeline_exp"
+- path::ENGAGEMENTS_PREFIX  = "engagements_exp"
+- path::PHASES_LOG_PREFIX   = "phases_exp"
+- path::PHASES_JSON         = "data/phases.json"  (입력)
+
+────────────────────────────────
+[Visualizer 타임라인 모드 / HTML Gantt 리포트]
+
+- utils/temp_py/visualizer/visualizer.py 에 timeline 모드가 추가되었다.
+  · CLI: --timeline <경로 또는 실험 인덱스>
+    예) python visualizer.py --timeline 57
+  · timeline_expNNN.json 과 같은 디렉터리의 engagements_/phases_ 파일을 자동 로드한다.
+  · 레이아웃: 상단 phase HUD(phaseId별 색상), 중앙-좌 맵, 우측 event 패널(커서 ±30초 윈도우),
+              하단 scrub bar(phase 구간, engagement bar, KIA spike).
+  · 조작: scrub bar 클릭/드래그로 시간 이동, SPACE 일시정지, "[" "]" 이전/다음 engagement,
+          "," "." 이전/다음 phase 경계, R 리셋, ESC 종료.
+  · 기존 로그 재생 모드(--log)는 그대로 유지되며 --timeline은 opt-in 이다.
+
+- utils/temp_py/visualizer/timeline_report.py 는 정적 HTML Gantt 리포트 생성기이다.
+  · CLI: --exp NNN  또는 --timeline path/to/timeline_expNNN.json
+  · 결과물: 같은 디렉터리의 report_expNNN.html (Python 의존성 없음, vis-timeline CDN 사용)
+  · 소대별 한 lane + Engagement 전용 lane, phase 구간을 색 배경으로 렌더링,
+    트리거 사유를 상단 pill 스트립과 배경 span에 함께 표시. 드래그/줌/hover 툴팁 지원.
+
+────────────────────────────────
+[엔진 제약(추가)]
+
+- 분기 계획은 phases.json의 phase + Condition DSL 로만 표현한다. 명령 자체에 "적 발견 시 ..." 같은 즉석 조건식은 여전히 금지이다.
+- BLUE HQ만 전역 phaseId tag holder이다(RED HQ도 phase mode를 쓸 수 있으나 timeline.phaseId 갱신은 BLUE HQ만 수행).
+- 동일 phase 내에서 동일 entity로 보내지는 orders는 phases.json 기재 순서대로 PlatoonLeader의 pending order로 누적되어 순차 활성화된다.
+- timeline.json events는 시뮬레이션 종료 시 한 번에 직렬화되므로, 시뮬레이션 도중 외부에서 읽지 말 것.
